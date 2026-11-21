@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f0d1a">
+<meta name="description" content="EchoBack — hears loud reels in public and plays them back two seconds late, so the volume comes down on its own. Live passthrough only: nothing is recorded, stored, or sent anywhere.">
+<title>EchoBack — play it back two seconds late</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="app">
+  <header class="hero">
+    <div class="brand-row">
+      <a class="brand" href="index.html" aria-label="EchoBack — home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M6 13a8 8 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M11 10a12 12 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity=".65"/>
+          <path d="M16 7a16 16 0 0 1 0 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity=".35"/>
+          <circle cx="24" cy="16" r="3" fill="currentColor"/>
+        </svg>
+        <span class="brand-name">Echo<em>Back</em></span>
+      </a>
+      <span class="badge-demo" id="demoBadge" hidden>Demo · simulated audio</span>
+    </div>
+    <p class="intro">Your phone hears the reel next to you and plays it back two
+      seconds late. The volume usually comes down on its own.
+      Nothing is recorded.</p>
+    <div class="hero-row">
+      <span class="pill" id="statusPill" data-kind="idle" aria-live="polite">Idle</span>
+      <span class="timer" id="sessionTimer" aria-label="Session timer">00:00</span>
+      <span class="chip chip-privacy">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 4v4c0 3.2-2.1 5.4-5 6.5C5.1 13.4 3 11.2 3 8V4l5-2.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m5.5 8 1.8 1.8L10.8 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Nothing recorded
+      </span>
+    </div>
+  </header>
+
+  <div class="stage">
+    <section class="panel control" aria-label="Echo control">
+      <div class="orb-wrap">
+        <svg class="orb-ring-svg" id="orbRingSvg" viewBox="0 0 196 196" aria-hidden="true">
+          <circle class="orb-ring-track" cx="98" cy="98" r="92" pathLength="100" />
+          <circle class="orb-ring-progress" id="orbRing" cx="98" cy="98" r="92" pathLength="100" />
+        </svg>
+        <button id="startBtn" class="orb" aria-pressed="false">
+          <span class="orb-core">
+            <svg class="orb-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="9" y="2.5" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+              <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span class="orb-label" id="startLabel">Start echo</span>
+            <span class="orb-sub">tap to begin</span>
+          </span>
+        </button>
+      </div>
+      <p class="narrate" id="narrate">
+        <strong id="narrateHead">Quiet room. Ready when you are.</strong>
+        <span id="narrateSub">Tap Start echo. The first echo lands 2.0s after the mic opens.</span>
+      </p>
+      <p class="notice" id="notice" data-kind="info" hidden></p>
+      <p class="warn" id="feedbackWarn" hidden><strong>Volume turned down.</strong>
+        <span id="feedbackWarnText"></span></p>
+    </section>
+
+    <section class="panel tunnel" aria-label="The delay line — live sound travelling to the echo">
+      <div class="tunnel-head">
+        <h2>The delay line</h2>
+        <span class="tunnel-delay" id="trailTime">2.0s late</span>
+      </div>
+
+      <div class="strip">
+        <div class="strip-head">
+          <span class="strip-tag tag-live">
+            <span class="dot" aria-hidden="true"></span>Hearing now
+          </span>
+          <span class="meter-label" id="meterLabel">Mic idle</span>
+        </div>
+        <div class="meter" role="meter" aria-label="Microphone input level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter">
+          <div class="meter-fill" id="meterFill"></div>
+        </div>
+        <canvas id="inWaveCanvas" class="wave wave-live" height="72" aria-label="Live microphone waveform"></canvas>
+      </div>
+
+      <div class="tunnel-track" aria-hidden="true">
+        <span class="tunnel-end tunnel-mic">
+          <svg viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </span>
+        <span class="tunnel-rail">
+          <span class="tunnel-fill" id="tunnelFill"></span>
+          <span class="tunnel-pulse" id="tunnelPulse"></span>
+        </span>
+        <span class="tunnel-end tunnel-speaker">
+          <svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4Z" fill="currentColor"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </span>
+      </div>
+      <p class="tunnel-caption" id="tunnelCaption">Sound travels the delay line — what the mic hears now reaches the speaker 2.0 seconds later.</p>
+
+      <div class="strip">
+        <div class="strip-head">
+          <span class="strip-tag tag-echo">
+            <span class="dot" aria-hidden="true"></span>Playing back · <span id="echoLate">2.0s</span> late
+          </span>
+          <span class="meter-label" id="echoLabel">Speaker idle</span>
+        </div>
+        <canvas id="waveCanvas" class="wave wave-echo" height="72" aria-label="Delayed audio waveform going to the speaker"></canvas>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel sliders" aria-label="Echo settings">
+    <div class="slider-row">
+      <label for="delaySlider">Echo delay <span class="value" id="delayValue">2.0s</span></label>
+      <input type="range" id="delaySlider" min="0.5" max="3.0" step="0.1" value="2.0" aria-describedby="delayHint">
+      <p class="hint" id="delayHint">A quick double at 0.5s, enough to throw anyone off at 2s, hard to talk over at 3s. Adjustable while echoing.</p>
+    </div>
+    <div class="slider-row">
+      <label for="volumeSlider">Output volume <span class="value" id="volumeValue">70%</span></label>
+      <input type="range" id="volumeSlider" min="0" max="100" step="1" value="70">
+      <p class="hint">Output is capped and runs through a compressor. Keep it moderate, and point the speaker away from the mic.</p>
+    </div>
+  </section>
+
+  <section class="panel how" aria-label="How it works">
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li>
+        <span class="step-node" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </span>
+        <div><strong>Listen.</strong> Your mic picks up the room — the reel, the music, the video next to you.</div>
+      </li>
+      <li>
+        <span class="step-node" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </span>
+        <div><strong>Delay.</strong> The sound waits 2 seconds in a delay line. Nothing is recorded or saved.</div>
+      </li>
+      <li>
+        <span class="step-node" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4Z" fill="currentColor"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </span>
+        <div><strong>Echo.</strong> It plays back from your speaker, two seconds
+          behind the original. The delayed copy clashes with the original —
+          which is the point.</div>
+      </li>
+      <li>
+        <span class="step-node" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 12.5v-2.5M8.5 15v-6M13 17.5v-11M17.5 14V10M21 12.5v-1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </span>
+        <div><strong>They turn it down.</strong> Lowering their volume kills the
+          echo. Nobody had to argue.</div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="panel etiquette" aria-label="Use it fairly">
+    <h2>Use it fairly</h2>
+    <p>It only plays back what your mic hears, in the moment. Use it in
+      shared spaces — buses, trains, waiting rooms — and switch it off once
+      the volume drops. Don't aim it at one person for a long time. If someone
+      asks what that sound is, tell them: it's their own audio, two seconds
+      late.</p>
+  </section>
+
+  <footer class="foot">
+    <p><strong>Nothing is recorded.</strong> Live passthrough only — no
+      recording, no storage, no uploads, no accounts, no servers. The audio
+      never leaves this page.</p>
+    <p class="credit">Inspired by Pankaj Tanwar's Bengaluru fix for loud reels in public.</p>
+  </footer>
+</main>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
