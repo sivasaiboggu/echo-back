@@ -89,6 +89,8 @@ const SHOTS = [
   { name: 'mobile-echoing.png', width: 390, url: 'index.html?demo=1&autostart=1', waitMs: 6000 },
   { name: 'desktop-idle.png', width: 1280, url: 'index.html', waitMs: 3500 },
   { name: 'desktop-echoing.png', width: 1280, url: 'index.html?demo=1&autostart=1', waitMs: 6000 },
+  { name: 'mobile-light-idle.png', width: 390, url: 'index.html?theme=light', waitMs: 3500 },
+  { name: 'desktop-light-echoing.png', width: 1280, url: 'index.html?demo=1&autostart=1&theme=light', waitMs: 6000 },
 ];
 
 async function main() {

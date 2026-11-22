@@ -1,25 +1,57 @@
 /* EchoBack.
    Flat ink-violet night, two-signal colour language:
    violet  = the sound the mic hears NOW
-   coral   = the echo coming back LATE
+   coral   = the echo coming back LATE (the one accent)
    Solid surfaces, hairline borders, one accent per signal.
-   Display type: Space Grotesk. Body: Inter. System fallbacks when offline. */
+   Tokens are OKLCH with hex fallbacks. Display type: Space Grotesk.
+   Body: Inter. Numbers: IBM Plex Mono. System fallbacks when offline. */
 
 :root {
-  /* palette */
+  /* palette — hex first, OKLCH wins where supported */
   --bg: #0f0d1a;
+  --bg: oklch(17.1% 0.037 317.9);
   --bg-soft: #17142a;
+  --bg-soft: oklch(21.0% 0.057 315.3);
   --card: #1a1730;
+  --card: oklch(22.6% 0.064 314.6);
   --line: rgba(255, 255, 255, 0.09);
   --text: #f4f2ff;
+  --text: oklch(97.2% 0.063 346.0);
   --muted: #b3aed4;
-  --faint: #7e78a3;
+  --muted: oklch(77.4% 0.091 327.0);
+  --faint: #8a84b2;
+  --faint: oklch(64.2% 0.102 321.5);
   --live: #8b7cff;
+  --live: oklch(67.5% 0.244 312.7);
   --live-deep: #6d5df6;
+  --live-deep: oklch(59.6% 0.282 310.9);
   --echo: #ff6a3d;
+  --echo: oklch(70.4% 0.195 36.4);
+  /* Deep coral for solid fills with white text (white on --echo is 2.85:1;
+     white on --echo-deep is 4.30:1 — the running button uses this). */
+  --echo-deep: #d9480f;
+  --echo-deep: oklch(60.0% 0.191 37.8);
   --echo-amber: #ffb020;
+  --echo-amber: oklch(81.3% 0.165 74.7);
   --red: #ff5470;
+  --red: oklch(68.8% 0.220 14.1);
   --amber: #fbbf24;
+  --amber: oklch(83.7% 0.165 84.0);
+  /* tracks, rails and canvas wells */
+  --track: rgba(255, 255, 255, 0.12);
+  --track-soft: rgba(255, 255, 255, 0.07);
+  --wave-bg: rgba(0, 0, 0, 0.35);
+  /* canvas colours, read by app.js (hex/rgba only — canvas, not CSS) */
+  --wave-live: #8b7cff;
+  --wave-echo: #ff6a3d;
+  --ghost-live: rgba(139, 124, 255, 0.4);
+  --ghost-echo: rgba(255, 106, 61, 0.35);
+  --flat-live: rgba(139, 124, 255, 0.35);
+  --flat-echo: rgba(255, 106, 61, 0.35);
+  /* type */
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-text: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   /* spacing scale */
   --s1: 4px;
   --s2: 8px;
@@ -37,6 +69,55 @@
   --tap: 56px;
 }
 
+/* Light theme — same two signals, deepened so text still passes AA on
+   white. Dark stays the default: this is a night-time tool, used in
+   public, and dark is discreet. One tap on "Light" switches. */
+:root[data-theme="light"] {
+  --bg: #f4f1fa;
+  --bg: oklch(96.9% 0.060 350.5);
+  --bg-soft: #e9e4f5;
+  --bg-soft: oklch(93.4% 0.068 343.3);
+  --card: #ffffff;
+  --card: oklch(100.5% 0.051 0.7);
+  --line: rgba(23, 20, 42, 0.12);
+  --text: #17142a;
+  --text: oklch(21.0% 0.057 315.3);
+  --muted: #55506e;
+  --muted: oklch(45.2% 0.073 322.1);
+  --faint: #6e6889;
+  --faint: oklch(54.0% 0.080 323.9);
+  --live: #5a3fd6;
+  --live: oklch(51.0% 0.282 311.9);
+  --live-deep: #4c33c4;
+  --live-deep: oklch(46.6% 0.273 311.4);
+  --echo: #c7430c;
+  --echo: oklch(56.4% 0.178 38.4);
+  --echo-deep: #c7430c;
+  --echo-deep: oklch(56.4% 0.178 38.4);
+  --echo-amber: #9a6700;
+  --echo-amber: oklch(55.4% 0.117 75.0);
+  --red: #c81e3f;
+  --red: oklch(54.0% 0.207 17.6);
+  --amber: #8a5a00;
+  --amber: oklch(50.8% 0.108 73.3);
+  --track: rgba(23, 20, 42, 0.14);
+  --track-soft: rgba(23, 20, 42, 0.10);
+  --wave-bg: rgba(23, 20, 42, 0.06);
+  --wave-live: #5a3fd6;
+  --wave-echo: #c7430c;
+  --ghost-live: rgba(90, 63, 214, 0.45);
+  --ghost-echo: rgba(199, 67, 12, 0.4);
+  --flat-live: rgba(90, 63, 214, 0.4);
+  --flat-echo: rgba(199, 67, 12, 0.35);
+  --shadow-card: 0 8px 24px rgba(23, 20, 42, 0.12);
+}
+
+/* Light-theme text that was written for dark surfaces. */
+[data-theme="light"] .notice[data-kind="info"] { background: rgba(90, 63, 214, 0.10); color: #3d3480; }
+[data-theme="light"] .notice[data-kind="error"] { background: rgba(200, 30, 63, 0.10); color: #a3122f; }
+[data-theme="light"] .warn { background: rgba(251, 191, 36, 0.20); color: #7a4d00; border-color: rgba(138, 90, 0, 0.4); }
+[data-theme="light"] .badge-demo { background: rgba(251, 191, 36, 0.20); color: #8a5a00; border-color: rgba(138, 90, 0, 0.4); }
+
 * { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
@@ -46,7 +127,7 @@ body {
   min-height: 100vh;
   color: var(--text);
   background: var(--bg);
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-text);
   line-height: 1.55;
 }
 
@@ -74,7 +155,7 @@ body {
 
 .panel h2 {
   margin: 0;
-  font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+  font-family: var(--font-display);
   font-size: 17px;
   letter-spacing: -0.01em;
 }
@@ -84,6 +165,7 @@ body {
 
 .brand-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -105,13 +187,19 @@ body {
 }
 
 .brand-name {
-  font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+  font-family: var(--font-display);
   font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 
 .brand-name em { font-style: normal; color: var(--echo); }
+
+.brand-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 
 .badge-demo {
   font-size: 12px;
@@ -123,6 +211,23 @@ body {
   border: 1px solid rgba(251, 191, 36, 0.35);
   white-space: nowrap;
 }
+
+/* One small text button, same pill shape as the status chips. Dark is the
+   default (a night-time tool, used in public); this switches to light. */
+.theme-toggle {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.theme-toggle:hover { color: var(--text); }
 
 .intro {
   margin: 14px 0 0;
@@ -165,8 +270,9 @@ body {
 .pill[data-kind="error"]::before { background: var(--red); }
 
 .timer {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 15px;
   padding: 7px 12px;
   border-radius: 999px;
@@ -226,7 +332,7 @@ body {
 
 .orb-ring-track {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.08);
+  stroke: var(--track-soft);
   stroke-width: 3;
 }
 
@@ -265,7 +371,7 @@ body {
 .orb:active { transform: scale(0.96); }
 
 .orb.running {
-  background: var(--echo);
+  background: var(--echo-deep);
 }
 
 .orb-core {
@@ -279,7 +385,7 @@ body {
 }
 
 .orb-icon { width: 30px; height: 30px; }
-.orb-label { font-family: "Space Grotesk", "Inter", system-ui, sans-serif; font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+.orb-label { font-family: var(--font-display); font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
 .orb-sub { font-size: 12px; font-weight: 600; opacity: 0.8; }
 
 .narrate {
@@ -289,7 +395,7 @@ body {
 
 .narrate strong {
   display: block;
-  font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+  font-family: var(--font-display);
   font-size: 17px;
   letter-spacing: -0.01em;
 }
@@ -323,9 +429,9 @@ body {
 }
 
 .tunnel-delay {
-  font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+  font-family: var(--font-mono);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--echo);
   font-variant-numeric: tabular-nums;
 }
@@ -368,7 +474,7 @@ body {
   height: 10px;
   margin-top: 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--track-soft);
   overflow: hidden;
 }
 
@@ -388,7 +494,7 @@ body {
   height: 72px;
   margin-top: 10px;
   border-radius: var(--r-sm);
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--wave-bg);
   border: 1px solid var(--line);
 }
 
@@ -420,9 +526,32 @@ body {
   flex: 1;
   height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--track-soft);
   overflow: visible;
 }
+
+/* The delay ruler: one tick every 0.5s along the rail, so the tunnel reads
+   as a timeline. A tick lights up once the travelling pulse has passed it
+   — violet while priming, coral once echoing. */
+.tunnel-ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tunnel-tick {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--line);
+  transform: translate(-50%, -50%);
+  transition: background 0.12s linear;
+}
+
+.tunnel-tick.lit-live { background: var(--live); }
+.tunnel-tick.lit-echo { background: var(--echo); }
 
 .tunnel-fill {
   position: absolute;
@@ -461,12 +590,14 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+  font-family: var(--font-display);
   font-size: 16px;
   font-weight: 600;
 }
 
 .slider-row .value {
+  font-family: var(--font-mono);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--echo);
 }
@@ -484,7 +615,7 @@ body {
 .slider-row input[type="range"]::-webkit-slider-runnable-track {
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--live) var(--fill, 50%), rgba(255, 255, 255, 0.12) var(--fill, 50%));
+  background: linear-gradient(90deg, var(--live) var(--fill, 50%), var(--track) var(--fill, 50%));
 }
 
 .slider-row input[type="range"]::-webkit-slider-thumb {
@@ -505,7 +636,7 @@ body {
 .slider-row input[type="range"]::-moz-range-track {
   height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--track);
 }
 
 .slider-row input[type="range"]::-moz-range-progress {
@@ -524,7 +655,7 @@ body {
 }
 
 #volumeSlider::-webkit-slider-runnable-track {
-  background: linear-gradient(90deg, var(--echo) var(--fill, 50%), rgba(255, 255, 255, 0.12) var(--fill, 50%));
+  background: linear-gradient(90deg, var(--echo) var(--fill, 50%), var(--track) var(--fill, 50%));
 }
 
 #volumeSlider::-webkit-slider-thumb { border-color: var(--echo); }
@@ -551,7 +682,7 @@ body {
   top: 26px;
   bottom: 26px;
   width: 2px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--track);
 }
 
 .steps li {

@@ -49,6 +49,25 @@ export function primingRingOffset(progress) {
 }
 
 /**
+ * Ruler tick positions along the delay line, 0..1. One tick every 0.5s,
+ * strictly inside the rail (never at the mic or speaker ends, so nothing
+ * can poke past the rail's edges). 2.0s -> [0.25, 0.5, 0.75].
+ */
+export function tickPositions(delaySeconds) {
+  const delay = clampDelay(delaySeconds ?? DELAY_DEFAULT);
+  const segments = Math.max(1, Math.round(delay / 0.5));
+  const out = [];
+  for (let i = 1; i < segments; i++) out.push(i / segments);
+  return out;
+}
+
+/** Which ruler ticks the travelling pulse has passed at `progress` 0..1. */
+export function litTicks(positions, progress) {
+  const p = Math.min(1, Math.max(0, progress ?? 0));
+  return (positions ?? []).map((pos) => pos <= p);
+}
+
+/**
  * What the app is doing right now, in plain words.
  * Returns { headline, sub } — the status story shown under the orb.
  */

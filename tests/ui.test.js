@@ -8,6 +8,8 @@ import {
   delayCaption,
   narrationFor,
   primingRingOffset,
+  tickPositions,
+  litTicks,
 } from '../src/ui-helpers.js';
 
 // --- delay-trail pulse -----------------------------------------------------
@@ -82,6 +84,37 @@ describe('primingRingOffset', () => {
     assert.equal(primingRingOffset(-2), 1);
     assert.equal(primingRingOffset(9), 0);
     assert.equal(primingRingOffset(undefined), 1);
+  });
+});
+
+// --- delay ruler -----------------------------------------------------------
+describe('tickPositions', () => {
+  it('places one tick every 0.5s, strictly inside the rail', () => {
+    assert.deepEqual(tickPositions(0.5), []);
+    assert.deepEqual(tickPositions(1.0), [0.5]);
+    assert.deepEqual(tickPositions(2.0), [0.25, 0.5, 0.75]);
+    assert.deepEqual(tickPositions(3.0), [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6]);
+  });
+
+  it('clamps to the delay range', () => {
+    assert.deepEqual(tickPositions(99), tickPositions(3.0));
+    assert.deepEqual(tickPositions(0.1), tickPositions(0.5));
+  });
+});
+
+describe('litTicks', () => {
+  it('lights ticks the pulse has passed, in order', () => {
+    const pos = [0.25, 0.5, 0.75];
+    assert.deepEqual(litTicks(pos, 0), [false, false, false]);
+    assert.deepEqual(litTicks(pos, 0.3), [true, false, false]);
+    assert.deepEqual(litTicks(pos, 0.5), [true, true, false]);
+    assert.deepEqual(litTicks(pos, 1), [true, true, true]);
+  });
+
+  it('clamps progress outside 0..1', () => {
+    assert.deepEqual(litTicks([0.5], -1), [false]);
+    assert.deepEqual(litTicks([0.5], 9), [true]);
+    assert.deepEqual(litTicks([0.5], undefined), [false]);
   });
 });
 

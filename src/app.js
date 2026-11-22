@@ -25,6 +25,8 @@ import {
   delayCaption,
   narrationFor,
   primingRingOffset,
+  tickPositions,
+  litTicks,
 } from './ui-helpers.js';
 
 const $ = (id) => document.getElementById(id);
@@ -50,7 +52,9 @@ const els = {
   trailTime: $('trailTime'),
   tunnelCaption: $('tunnelCaption'),
   tunnelFill: $('tunnelFill'),
+  tunnelTicks: $('tunnelTicks'),
   tunnelPulse: $('tunnelPulse'),
+  themeToggle: $('themeToggle'),
   orbRingSvg: $('orbRingSvg'),
   orbRing: $('orbRing'),
   narrateHead: $('narrateHead'),
@@ -81,6 +85,44 @@ const inCtx = els.inWave.getContext('2d');
 const outCtx = els.wave.getContext('2d');
 const inputData = new Uint8Array(2048);
 const outputData = new Uint8Array(2048);
+
+// Canvas colours come from the CSS tokens, so the waveforms follow the
+// theme. Hex/rgba only — canvas does not take the OKLCH token values.
+let palette = {
+  live: '#8b7cff', echo: '#ff6a3d',
+  ghostLive: 'rgba(139, 124, 255, 0.4)', ghostEcho: 'rgba(255, 106, 61, 0.35)',
+  flatLive: 'rgba(139, 124, 255, 0.35)', flatEcho: 'rgba(255, 106, 61, 0.35)',
+};
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function readPalette() {
+  const next = {
+    live: cssVar('--wave-live'),
+    echo: cssVar('--wave-echo'),
+    ghostLive: cssVar('--ghost-live'),
+    ghostEcho: cssVar('--ghost-echo'),
+    flatLive: cssVar('--flat-live'),
+    flatEcho: cssVar('--flat-echo'),
+  };
+  for (const [key, value] of Object.entries(next)) {
+    if (value) palette[key] = value;
+  }
+}
+
+// Dark is the default (a night-time tool, used in public); ?theme=light
+// previews the light theme, and the header button switches for the session.
+function applyTheme(name) {
+  document.documentElement.dataset.theme = name;
+  els.themeToggle.textContent = name === 'light' ? 'Dark' : 'Light';
+  els.themeToggle.setAttribute(
+    'aria-label',
+    name === 'light' ? 'Switch to dark theme' : 'Switch to light theme',
+  );
+  readPalette();
+}
 
 function currentDelay() {
   return clampDelay(els.delaySlider.value);
@@ -186,6 +228,18 @@ function fitCanvas() {
   }
 }
 
+let tickPos = [];
+
+function renderTicks() {
+  tickPos = tickPositions(currentDelay());
+  els.tunnelTicks.replaceChildren(...tickPos.map((p) => {
+    const tick = document.createElement('span');
+    tick.className = 'tunnel-tick';
+    tick.style.left = `${p * 100}%`;
+    return tick;
+  }));
+}
+
 function renderTunnel(now) {
   const progress = trailProgress({
     state: state.state,
@@ -198,6 +252,13 @@ function renderTunnel(now) {
   els.tunnelPulse.classList.toggle('on', active);
   els.tunnelPulse.style.left = `${progress * 100}%`;
   els.tunnelFill.style.width = state.state === 'echoing' ? '100%' : `${progress * 100}%`;
+  // The ruler ticks light up as the pulse passes them — violet while the
+  // delay primes, coral once the echo is looping.
+  const lit = litTicks(tickPos, active ? progress : 0);
+  [...els.tunnelTicks.children].forEach((tick, i) => {
+    tick.classList.toggle('lit-live', state.state === 'listening' && lit[i]);
+    tick.classList.toggle('lit-echo', state.state === 'echoing' && lit[i]);
+  });
   // The ring around the start button is the same progress, made useful:
   // it fills while the delay primes and stays full while echoing.
   if (state.state === 'listening') {
@@ -235,8 +296,8 @@ function tick() {
   if (state.state === 'idle' || state.state === 'error') {
     renderMeter(0, 0);
     const phase = now / 1400;
-    drawWaveOn(inCtx, els.inWave, null, 'rgba(139, 124, 255, 0.4)', phase);
-    drawWaveOn(outCtx, els.wave, null, 'rgba(255, 106, 61, 0.35)', phase + 1.2);
+    drawWaveOn(inCtx, els.inWave, null, palette.ghostLive, phase);
+    drawWaveOn(outCtx, els.wave, null, palette.ghostEcho, phase + 1.2);
     renderTunnel(now);
     rafId = requestAnimationFrame(tick);
     return;
@@ -244,8 +305,8 @@ function tick() {
   if (DEMO) {
     const { rms, peak } = demoSample(now);
     renderMeter(rms, peak);
-    drawWaveOn(inCtx, els.inWave, inputData, '#8b7cff');
-    drawWaveOn(outCtx, els.wave, outputData, '#ff6a3d');
+    drawWaveOn(inCtx, els.inWave, inputData, palette.live);
+    drawWaveOn(outCtx, els.wave, outputData, palette.echo);
     if (state.state === 'listening' && echoAt && now >= echoAt) {
       state.go('echoing');
       setStatus('Echoing', 'echoing');
@@ -257,8 +318,8 @@ function tick() {
     const rms = rmsFromTimeDomain(inputData);
     const peak = peakFromTimeDomain(inputData);
     renderMeter(rms, peak);
-    drawWaveOn(inCtx, els.inWave, inputData, '#8b7cff');
-    drawWaveOn(outCtx, els.wave, outputData, '#ff6a3d');
+    drawWaveOn(inCtx, els.inWave, inputData, palette.live);
+    drawWaveOn(outCtx, els.wave, outputData, palette.echo);
     const action = guard.update(peak, now);
     if (action === 'duck') {
       ducked = true;
@@ -332,6 +393,12 @@ async function start() {
 
   try {
     stream = await navigator.mediaDevices.getUserMedia(micConstraints());
+    if (state.state !== 'requesting') {
+      // Tapped Stop while the permission prompt was open: the mic arrived
+      // after the user already walked away. Drop the stream, stay stopped.
+      stopTracks();
+      return;
+    }
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') await audioCtx.resume();
     graph = createEchoGraph(audioCtx, stream, {
@@ -340,6 +407,12 @@ async function start() {
     });
     beginListening();
   } catch (err) {
+    if (state.state !== 'requesting') {
+      // Same walk-away: a denied prompt after Stop must not flip the
+      // stopped UI into an error state.
+      stopTracks();
+      return;
+    }
     const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
     state.fail(denied ? 'Microphone permission denied.' : 'Microphone unavailable.');
     showNotice(
@@ -384,8 +457,8 @@ function stop() {
   setRunning(false);
   renderMeter(0, 0);
   renderTunnel(performance.now());
-  drawFlat(inCtx, els.inWave, 'rgba(139, 124, 255, 0.35)');
-  drawFlat(outCtx, els.wave, 'rgba(255, 106, 61, 0.35)');
+  drawFlat(inCtx, els.inWave, palette.flatLive);
+  drawFlat(outCtx, els.wave, palette.flatEcho);
   els.timer.textContent = '00:00';
   els.warn.hidden = true;
   updateNarration();
@@ -401,6 +474,7 @@ function syncDelayUI() {
     `Sound travels the delay line — what the mic hears now reaches the speaker ${v.toFixed(1)} seconds later.`;
   els.delayHint.textContent = `${delayCaption(v)} Adjustable while echoing.`;
   setSliderFill(els.delaySlider);
+  renderTicks();
 }
 
 els.startBtn.addEventListener('click', () => {
@@ -426,6 +500,11 @@ els.volumeSlider.addEventListener('input', () => {
 });
 
 // Initial paint.
+const themeParam = params.get('theme');
+applyTheme(themeParam === 'light' ? 'light' : 'dark');
+els.themeToggle.addEventListener('click', () => {
+  applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+});
 els.delaySlider.value = String(DELAY_DEFAULT);
 els.volumeSlider.value = String(VOLUME_DEFAULT);
 els.volumeValue.textContent = `${VOLUME_DEFAULT}%`;

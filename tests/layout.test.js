@@ -157,3 +157,14 @@ test('no horizontal overflow at 1280px (desktop), idle and echoing', { timeout: 
     }
   });
 });
+
+test('no horizontal overflow in the light theme at 390px (phone), idle and echoing', { timeout: 240000 }, async () => {
+  await withBrowser(async (cdp) => {
+    for (const page of ['index.html?theme=light', 'index.html?demo=1&autostart=1&theme=light']) {
+      const sep = page.includes('?') ? '&' : '?';
+      const report = await layoutReport(cdp, pageUrl(`${page}${sep}layoutcheck=1`), 390, 4000);
+      assert.equal(report.vw, 390, page);
+      assert.equal(report.overflow, false, `${page} overflows at 390px: ${JSON.stringify(report.offenders)}`);
+    }
+  });
+});

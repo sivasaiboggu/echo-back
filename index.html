@@ -8,7 +8,7 @@
 <title>EchoBack — play it back two seconds late</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -24,7 +24,10 @@
         </svg>
         <span class="brand-name">Echo<em>Back</em></span>
       </a>
-      <span class="badge-demo" id="demoBadge" hidden>Demo · simulated audio</span>
+      <span class="brand-side">
+        <span class="badge-demo" id="demoBadge" hidden>Demo · simulated audio</span>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light theme">Light</button>
+      </span>
     </div>
     <p class="intro">Your phone hears the reel next to you and plays it back two
       seconds late. The volume usually comes down on its own.
@@ -91,6 +94,7 @@
         </span>
         <span class="tunnel-rail">
           <span class="tunnel-fill" id="tunnelFill"></span>
+          <span class="tunnel-ticks" id="tunnelTicks" aria-hidden="true"></span>
           <span class="tunnel-pulse" id="tunnelPulse"></span>
         </span>
         <span class="tunnel-end tunnel-speaker">
