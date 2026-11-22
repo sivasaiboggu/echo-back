@@ -1,170 +1,173 @@
-// Layout regression test — the app must fit the viewport with no
-// horizontal overflow, at desktop (1280px) and at a true 390px phone
-// width. Drives real headless Chrome over CDP (device metrics override
-// gives a true 390px viewport — --window-size alone bottoms out at
-// 500px) and reads the ?layoutcheck=1 report the page writes into its
-// own DOM (see src/app.js).
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { setTimeout as delay } from 'node:timers/promises';
-import { createHash } from 'node:crypto';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { after, before, test } from 'node:test';
+import { launchBrowser, serve, waitForState } from '../scripts/browser.mjs';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url)) + '/..';
-const CHROME = process.env.CHROME_BIN
-  || ['/opt/meta-chromium/chrome', '/usr/bin/chromium-browser', 'google-chrome']
-    .find((c) => c.startsWith('/') ? fs.existsSync(c) : true);
+let site;
+let browser;
 
-// This VM's Hatch Chrome build refuses to start without a WebGL domain
-// policy: a file whose first line is the contract marker followed by
-// registrable domains, plus its SHA-256. The policy only gates WebGL
-// origins; this test needs DOM + 2D canvas only, so any valid contract
-// (example.com) is enough to get the browser up.
-function chromeArgs(debugPort, firstUrl) {
-  const policy = 'hatch-webgl-allowed-domains-v1\nexample.com\n';
-  const file = path.join(os.tmpdir(), 'echo-back-webgl-policy.txt');
-  fs.writeFileSync(file, policy);
-  const sha = createHash('sha256').update(policy).digest('hex');
-  return [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--allow-file-access-from-files',
-    `--user-data-dir=${fs.mkdtempSync(path.join(os.tmpdir(), 'echo-back-chrome-'))}`,
-    `--hatch-webgl-allowed-domains-file=${file}`,
-    `--hatch-webgl-allowed-domains-sha256=${sha}`,
-    `--remote-debugging-port=${debugPort}`,
-    '--window-size=1280,900',
-    firstUrl,
-  ];
-}
+before(async () => {
+  site = await serve(new URL('..', import.meta.url).pathname);
+  browser = await launchBrowser();
+});
 
-// Pages load over file://, not http://127.0.0.1: this Chrome build blocks
-// navigations to local-network servers (ERR_BLOCKED_BY_LOCAL_NETWORK_
-// ACCESS_CHECKS) when initiated through DevTools, while file:// pages load
-// fine with --allow-file-access-from-files (ES module imports included).
-const pageUrl = (page) => `file://${ROOT}/${page}`;
-const DEBUG_PORT = 9224;
+after(async () => {
+  await browser?.close();
+  site?.close();
+});
 
-// ---------- tiny CDP client (built-in WebSocket, no deps) ----------
+for (const { width, theme } of [
+  { width: 320, theme: 'dark' },
+  { width: 390, theme: 'dark' },
+  { width: 390, theme: 'light' },
+  { width: 1280, theme: 'dark' },
+  { width: 1280, theme: 'light' },
+]) {
+  test(`no horizontal overflow at ${width}px in ${theme} mode`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 860 }, isMobile: width < 500 });
+    try {
+      await page.goto(`${site.origin}/?theme=${theme}&demo=1`);
+      await page.evaluate(() => document.fonts.ready);
 
-class Cdp {
-  constructor(wsUrl) {
-    this.ws = new WebSocket(wsUrl);
-    this.nextId = 1;
-    this.pending = new Map();
-    this.events = [];
-    this.ready = new Promise((resolve, reject) => {
-      this.ws.onopen = resolve;
-      this.ws.onerror = reject;
-    });
-    this.ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.id && this.pending.has(msg.id)) {
-        const { resolve, reject } = this.pending.get(msg.id);
-        this.pending.delete(msg.id);
-        if (msg.error) reject(new Error(JSON.stringify(msg.error)));
-        else resolve(msg.result);
-      } else if (msg.method) {
-        this.events.push(msg);
+      async function check() {
+        const size = await page.evaluate(() => ({
+          viewport: document.documentElement.clientWidth,
+          content: document.documentElement.scrollWidth,
+        }));
+        assert.equal(size.viewport, width);
+        assert.equal(size.content, size.viewport);
       }
-    };
-  }
 
-  async call(method, params = {}) {
-    await this.ready;
-    const id = this.nextId++;
-    const done = new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
-    this.ws.send(JSON.stringify({ id, method, params }));
-    return done;
-  }
-
-  async waitForEvent(method, timeoutMs = 30000) {
-    const start = Date.now();
-    for (;;) {
-      const i = this.events.findIndex((e) => e.method === method);
-      if (i >= 0) return this.events.splice(i, 1)[0];
-      if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${method}`);
-      await delay(100);
+      await check();
+      await page.getByRole('button', { name: 'Start echo' }).click();
+      await waitForState(page, 'listening');
+      await check();
+      await waitForState(page, 'echoing');
+      await check();
+    } finally {
+      await page.close();
     }
-  }
-
-  async evaluate(expression) {
-    const { result } = await this.call('Runtime.evaluate', { expression, returnByValue: true });
-    if (result.exceptionDetails) throw new Error(`evaluate failed: ${JSON.stringify(result.exceptionDetails)}`);
-    return result.value;
-  }
-
-  close() { try { this.ws.close(); } catch (err) { /* already closed */ } }
+  });
 }
 
-async function withBrowser(fn) {
-  const firstUrl = pageUrl('index.html');
-  const chrome = spawn(CHROME, chromeArgs(DEBUG_PORT, firstUrl));
+test('demo controls work by keyboard, update the ruler, and stop cleanly', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   try {
-    let wsUrl = null;
-    for (let i = 0; i < 50; i++) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`);
-        const targets = await res.json();
-        const page = targets.find((t) => t.type === 'page');
-        if (page) { wsUrl = page.webSocketDebuggerUrl; break; }
-      } catch (err) { /* not up yet */ }
-      await delay(200);
-    }
-    assert.ok(wsUrl, 'Chrome DevTools did not come up');
-    const cdp = new Cdp(wsUrl);
-    await cdp.call('Page.enable');
-    await cdp.call('Runtime.enable');
-    await fn(cdp);
-    cdp.close();
+    await page.goto(`${site.origin}/?demo=1`);
+    await page.keyboard.press('Tab');
+    assert.match(await page.locator(':focus').innerText(), /Skip/);
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator(':focus').getAttribute('id'), 'startBtn');
+    await page.keyboard.press('Enter');
+    await waitForState(page, 'listening');
+    const delay = page.getByRole('slider', { name: 'Echo delay' });
+    await delay.press('Home');
+    assert.equal(await delay.getAttribute('aria-valuetext'), '0.5 seconds');
+    await waitForState(page, 'echoing');
+    assert.equal(await page.locator('#rulerLabels').innerText(), '0 s\n+0.5 s');
+    assert.equal(await page.locator('#rulerMarker').isVisible(), false);
+
+    const volume = page.getByRole('slider', { name: 'Output volume' });
+    await volume.press('Home');
+    assert.equal(await volume.getAttribute('aria-valuetext'), '0 percent');
+    assert.equal(await page.locator('#speakerStatus').innerText(), 'Muted');
+
+    await page.getByRole('button', { name: 'Stop echo' }).press('Enter');
+    await waitForState(page, 'idle');
+    assert.equal(await page.locator('#sessionTimer').innerText(), '00:00');
   } finally {
-    chrome.kill('SIGTERM');
+    await page.close();
   }
-}
-
-async function layoutReport(cdp, url, width, waitMs) {
-  await cdp.call('Emulation.setDeviceMetricsOverride', {
-    width, height: 844, deviceScaleFactor: 2, mobile: width < 600,
-  });
-  await cdp.call('Page.navigate', { url });
-  await cdp.waitForEvent('Page.loadEventFired');
-  await delay(waitMs);
-  const raw = await cdp.evaluate(`(document.getElementById('layout-check') || {}).textContent || ''`);
-  assert.ok(raw, `no layout-check report in ${url} (page may not have loaded)`);
-  return JSON.parse(raw);
-}
-
-test('no horizontal overflow at 390px (phone), idle and echoing', { timeout: 240000 }, async () => {
-  await withBrowser(async (cdp) => {
-    for (const page of ['index.html', 'index.html?demo=1&autostart=1']) {
-      const sep = page.includes('?') ? '&' : '?';
-      const report = await layoutReport(cdp, pageUrl(`${page}${sep}layoutcheck=1`), 390, 4000);
-      assert.equal(report.vw, 390, page);
-      assert.equal(report.overflow, false, `${page} overflows at 390px: ${JSON.stringify(report.offenders)}`);
-    }
-  });
 });
 
-test('no horizontal overflow at 1280px (desktop), idle and echoing', { timeout: 240000 }, async () => {
-  await withBrowser(async (cdp) => {
-    for (const page of ['index.html', 'index.html?demo=1&autostart=1']) {
-      const sep = page.includes('?') ? '&' : '?';
-      const report = await layoutReport(cdp, pageUrl(`${page}${sep}layoutcheck=1`), 1280, 4000);
-      assert.equal(report.overflow, false, `${page} overflows at 1280px: ${JSON.stringify(report.offenders)}`);
-    }
-  });
+test('microphone denial shows a recovery step and permits a retry', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.addInitScript(() => {
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Denied', 'NotAllowedError'));
+    });
+    await page.goto(site.origin);
+    await page.getByRole('button', { name: 'Start echo' }).click();
+    await waitForState(page, 'error');
+    assert.match(await page.locator('#sessionNote').innerText(), /browser settings/);
+    await page.getByRole('button', { name: 'Start echo' }).click();
+    await waitForState(page, 'error');
+  } finally {
+    await page.close();
+  }
 });
 
-test('no horizontal overflow in the light theme at 390px (phone), idle and echoing', { timeout: 240000 }, async () => {
-  await withBrowser(async (cdp) => {
-    for (const page of ['index.html?theme=light', 'index.html?demo=1&autostart=1&theme=light']) {
-      const sep = page.includes('?') ? '&' : '?';
-      const report = await layoutReport(cdp, pageUrl(`${page}${sep}layoutcheck=1`), 390, 4000);
-      assert.equal(report.vw, 390, page);
-      assert.equal(report.overflow, false, `${page} overflows at 390px: ${JSON.stringify(report.offenders)}`);
-    }
-  });
+test('a late microphone response after Cancel cannot interrupt a new session', async () => {
+  const page = await browser.newPage({ permissions: ['microphone'] });
+  try {
+    await page.addInitScript(() => {
+      const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      window.pendingMicrophones = [];
+      navigator.mediaDevices.getUserMedia = (constraints) => new Promise((resolve, reject) => {
+        window.pendingMicrophones.push(async () => {
+          try {
+            const stream = await getUserMedia(constraints);
+            window.lastMicrophone = stream;
+            resolve(stream);
+          } catch (error) { reject(error); }
+        });
+      });
+    });
+    await page.goto(site.origin);
+    const start = page.getByRole('button', { name: 'Start echo' });
+    await start.click();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await waitForState(page, 'idle');
+    await start.click();
+    await waitForState(page, 'requesting');
+    await page.evaluate(() => window.pendingMicrophones.shift()());
+    await page.waitForFunction(() => window.lastMicrophone.getAudioTracks()[0].readyState === 'ended');
+    await waitForState(page, 'requesting');
+    await page.evaluate(() => window.pendingMicrophones.shift()());
+    await waitForState(page, 'listening');
+    assert.equal(await page.evaluate(() => window.lastMicrophone.getAudioTracks()[0].readyState), 'live');
+    await waitForState(page, 'echoing');
+    await page.getByRole('button', { name: 'Stop echo' }).click();
+    await waitForState(page, 'idle');
+    assert.equal(await page.evaluate(() => window.lastMicrophone.getAudioTracks()[0].readyState), 'ended');
+  } finally {
+    await page.close();
+  }
+});
+
+test('theme and privacy links stay in sync', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(site.origin);
+    await page.getByRole('link', { name: 'Nothing is recorded' }).click();
+    await page.getByRole('button', { name: 'Light mode' }).click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+    await page.getByRole('link', { name: 'Back to EchoBack' }).click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+    assert.equal(await page.getByRole('heading', { level: 1 }).innerText(), 'Room sound,\non a delay.');
+  } finally {
+    await page.close();
+  }
+});
+
+test('feedback warning appears and clears with the live audio guard', async () => {
+  const page = await browser.newPage({ permissions: ['microphone'] });
+  try {
+    await page.addInitScript(() => {
+      window.micIsLoud = true;
+      AnalyserNode.prototype.getByteTimeDomainData = (buffer) => {
+        buffer.fill(window.micIsLoud ? 255 : 128);
+      };
+    });
+    await page.goto(site.origin);
+    await page.getByRole('button', { name: 'Start echo' }).click();
+    const warning = page.locator('#feedbackWarn');
+    await warning.filter({ hasText: /Output volume lowered/ }).waitFor();
+    await page.evaluate(() => { window.micIsLoud = false; });
+    await warning.waitFor({ state: 'hidden' });
+    assert.equal(await warning.innerText(), '');
+    await page.getByRole('button', { name: 'Stop echo' }).click();
+    await waitForState(page, 'idle');
+  } finally {
+    await page.close();
+  }
 });

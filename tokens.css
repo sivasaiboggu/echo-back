@@ -1,0 +1,103 @@
+/* Generated from design/tokens.json by npm run tokens. */
+:root {
+  --color-neutral-1: #171815;
+  --color-neutral-2: #1d1f1a;
+  --color-neutral-3: #242720;
+  --color-neutral-4: #2d3028;
+  --color-neutral-5: #373b32;
+  --color-neutral-6: #484d42;
+  --color-neutral-7: #626858;
+  --color-neutral-8: #858a78;
+  --color-neutral-9: #a8ad9b;
+  --color-neutral-10: #c8cbbc;
+  --color-neutral-11: #e8e7dc;
+  --color-neutral-12: #f5f3ea;
+  --color-ochre-light: #ebd17a;
+  --color-ochre-light-active: #ffe599;
+  --color-ochre-dark: #6a5000;
+  --color-ochre-dark-active: #564000;
+  --color-status-warning-light: #edbc95;
+  --color-status-warning-dark: #843b16;
+  --color-status-error-light: #ffb4a9;
+  --color-status-error-dark: #9d3029;
+  --page: var(--color-neutral-1);
+  --surface: var(--color-neutral-2);
+  --raised: var(--color-neutral-3);
+  --recess: var(--color-neutral-1);
+  --ink: var(--color-neutral-12);
+  --muted: var(--color-neutral-9);
+  --line: var(--color-neutral-5);
+  --control-line: var(--color-neutral-8);
+  --trace: var(--color-neutral-9);
+  --accent: var(--color-ochre-light);
+  --accent-active: var(--color-ochre-light-active);
+  --on-accent: var(--color-neutral-1);
+  --warning: var(--color-status-warning-light);
+  --error: var(--color-status-error-light);
+  --shadow: var(--color-neutral-1);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --radius-edge: 4px;
+  --radius-thumb: 2px;
+  --type-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --type-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --type-display: clamp(2.75rem, 2rem + 3.6vw, 5.25rem);
+  --type-heading: clamp(1.375rem, 1.25rem + .5vw, 1.75rem);
+  --type-body: clamp(1rem, .95rem + .25vw, 1.125rem);
+  --type-label: .875rem;
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px var(--shadow-soft), 0 4px 8px var(--shadow-soft);
+  --elevation-2: 0 2px 4px var(--shadow-soft), 0 8px 16px var(--shadow-soft);
+  --motion-press: 160ms;
+  --motion-spring: cubic-bezier(.22, 1.2, .38, 1);
+}
+:root[data-theme="light"] {
+  --page: var(--color-neutral-12);
+  --surface: var(--color-neutral-11);
+  --raised: var(--color-neutral-12);
+  --recess: var(--color-neutral-12);
+  --ink: var(--color-neutral-1);
+  --muted: var(--color-neutral-6);
+  --line: var(--color-neutral-9);
+  --control-line: var(--color-neutral-7);
+  --trace: var(--color-neutral-6);
+  --accent: var(--color-ochre-dark);
+  --accent-active: var(--color-ochre-dark-active);
+  --on-accent: var(--color-neutral-12);
+  --warning: var(--color-status-warning-dark);
+  --error: var(--color-status-error-dark);
+  --shadow: var(--color-neutral-7);
+}
+@supports (color: oklch(0.5 0.1 90)) {
+  :root {
+    --color-neutral-1: oklch(0.20675 0.00601 121.96);
+    --color-neutral-2: oklch(0.23529 0.00982 124.95);
+    --color-neutral-3: oklch(0.26716 0.01338 126.23);
+    --color-neutral-4: oklch(0.30342 0.01463 124.02);
+    --color-neutral-5: oklch(0.34544 0.01622 126.82);
+    --color-neutral-6: oklch(0.41208 0.01902 127.21);
+    --color-neutral-7: oklch(0.50719 0.02571 124.06);
+    --color-neutral-8: oklch(0.62400 0.02696 119.81);
+    --color-neutral-9: oklch(0.73850 0.02590 119.67);
+    --color-neutral-10: oklch(0.83558 0.02073 116.03);
+    --color-neutral-11: oklch(0.92572 0.01472 102.47);
+    --color-neutral-12: oklch(0.96323 0.01210 96.42);
+    --color-ochre-light: oklch(0.86411 0.11104 93.24);
+    --color-ochre-light-active: oklch(0.92639 0.09897 91.31);
+    --color-ochre-dark: oklch(0.44628 0.09128 86.91);
+    --color-ochre-dark-active: oklch(0.38495 0.07876 86.47);
+    --color-status-warning-light: oklch(0.82963 0.07677 59.97);
+    --color-status-warning-dark: oklch(0.44343 0.11154 44.43);
+    --color-status-error-light: oklch(0.83783 0.08957 28.41);
+    --color-status-error-dark: oklch(0.47254 0.14572 27.74);
+  }
+}
