@@ -5,11 +5,8 @@ import { describe, it } from 'node:test';
 import {
   trailProgress,
   primeRemainingSeconds,
-  delayCaption,
   narrationFor,
-  primingRingOffset,
   tickPositions,
-  litTicks,
 } from '../src/ui-helpers.js';
 
 // --- delay-trail pulse -----------------------------------------------------
@@ -62,31 +59,6 @@ describe('primeRemainingSeconds', () => {
   });
 });
 
-// --- delay caption ---------------------------------------------------------
-describe('delayCaption', () => {
-  it('names what each delay feels like, in plain words', () => {
-    assert.match(delayCaption(0.5), /quick double/);
-    assert.match(delayCaption(2.0), /throw anyone off/);
-    assert.match(delayCaption(3.0), /talk over/);
-    assert.match(delayCaption(99), /talk over/); // clamps to 3.0
-  });
-});
-
-// --- priming ring ----------------------------------------------------------
-describe('primingRingOffset', () => {
-  it('is 1 (empty ring) at 0 progress and 0 (full ring) at 1', () => {
-    assert.equal(primingRingOffset(0), 1);
-    assert.equal(primingRingOffset(0.5), 0.5);
-    assert.equal(primingRingOffset(1), 0);
-  });
-
-  it('clamps outside 0..1', () => {
-    assert.equal(primingRingOffset(-2), 1);
-    assert.equal(primingRingOffset(9), 0);
-    assert.equal(primingRingOffset(undefined), 1);
-  });
-});
-
 // --- delay ruler -----------------------------------------------------------
 describe('tickPositions', () => {
   it('places one tick every 0.5s, strictly inside the rail', () => {
@@ -96,45 +68,31 @@ describe('tickPositions', () => {
     assert.deepEqual(tickPositions(3.0), [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6]);
   });
 
+  it('keeps half-second ticks at their exact times for fractional delays', () => {
+    assert.deepEqual(tickPositions(0.6), [0.5 / 0.6]);
+    assert.deepEqual(tickPositions(2.3), [0.5 / 2.3, 1 / 2.3, 1.5 / 2.3, 2 / 2.3]);
+  });
+
   it('clamps to the delay range', () => {
     assert.deepEqual(tickPositions(99), tickPositions(3.0));
     assert.deepEqual(tickPositions(0.1), tickPositions(0.5));
   });
 });
 
-describe('litTicks', () => {
-  it('lights ticks the pulse has passed, in order', () => {
-    const pos = [0.25, 0.5, 0.75];
-    assert.deepEqual(litTicks(pos, 0), [false, false, false]);
-    assert.deepEqual(litTicks(pos, 0.3), [true, false, false]);
-    assert.deepEqual(litTicks(pos, 0.5), [true, true, false]);
-    assert.deepEqual(litTicks(pos, 1), [true, true, true]);
-  });
-
-  it('clamps progress outside 0..1', () => {
-    assert.deepEqual(litTicks([0.5], -1), [false]);
-    assert.deepEqual(litTicks([0.5], 9), [true]);
-    assert.deepEqual(litTicks([0.5], undefined), [false]);
-  });
-});
-
-// --- status narration ------------------------------------------------------
 describe('narrationFor', () => {
-  it('tells the story for every state', () => {
-    assert.match(narrationFor({ state: 'idle', delaySeconds: 2 }).headline, /Quiet room/);
-    assert.match(narrationFor({ state: 'idle', delaySeconds: 2 }).sub, /Start echo/);
-    assert.match(narrationFor({ state: 'requesting' }).headline, /microphone/);
-    assert.match(narrationFor({ state: 'listening', primeRemaining: 1.4 }).headline, /Listening/);
-    assert.match(narrationFor({ state: 'listening', primeRemaining: 1.4 }).sub, /1\.4s/);
-    assert.match(narrationFor({ state: 'echoing', delaySeconds: 2 }).headline, /2\.0s late/);
-    assert.match(narrationFor({ state: 'echoing', delaySeconds: 2 }).sub, /2\.0 seconds later/);
-    assert.match(
-      narrationFor({ state: 'echoing', delaySeconds: 2, ducked: true }).headline,
-      /turned down/,
-    );
-    assert.match(
-      narrationFor({ state: 'error', error: 'Microphone permission denied.' }).sub,
-      /denied/,
-    );
+  it('gives the next step when idle or waiting for permission', () => {
+    assert.match(narrationFor({ state: 'idle' }), /Start echo, then allow microphone/);
+    assert.match(narrationFor({ state: 'idle', demo: true }), /demo audio/);
+    assert.match(narrationFor({ state: 'requesting' }), /browser asks/);
+  });
+
+  it('reports the countdown and selected delay', () => {
+    assert.match(narrationFor({ state: 'listening', primeRemaining: 1.4 }), /1\.4 s/);
+    assert.match(narrationFor({ state: 'echoing', delaySeconds: 2 }), /2\.0 seconds late/);
+  });
+
+  it('provides a fallback when the browser gives no explanation', () => {
+    assert.match(narrationFor({ state: 'error' }), /try again/);
+    assert.equal(narrationFor({ state: 'error', error: 'Mic permission denied.' }), 'Mic permission denied.');
   });
 });

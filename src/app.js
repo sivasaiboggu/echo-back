@@ -1,545 +1,414 @@
-// EchoBack — UI wiring. No audio is recorded, stored, or transmitted.
-// The live path is mic -> delay -> speaker only. `?demo=1` runs a clearly
-// labelled simulation (animated levels, no mic) so the echoing UI can be
-// previewed without a microphone.
-//
-// The interface tells the story of the delay: violet is the sound the mic
-// hears NOW, coral is the echo coming back LATE, and the delay-trail pulse
-// shows a packet of sound travelling the tunnel between them.
-
 import {
   DELAY_DEFAULT,
+  FEEDBACK_PEAK,
   VOLUME_DEFAULT,
   clampDelay,
-  formatTimer,
-  rmsFromTimeDomain,
-  peakFromTimeDomain,
+  createEchoGraph,
   EchoState,
   FeedbackGuard,
-  createEchoGraph,
+  formatTimer,
   micConstraints,
+  peakFromTimeDomain,
+  rmsFromTimeDomain,
 } from './audio-engine.js';
-import {
-  trailProgress,
-  primeRemainingSeconds,
-  delayCaption,
-  narrationFor,
-  primingRingOffset,
-  tickPositions,
-  litTicks,
-} from './ui-helpers.js';
+import { narrationFor, tickPositions, trailProgress, primeRemainingSeconds } from './ui-helpers.js';
 
-const $ = (id) => document.getElementById(id);
-
-const els = {
-  startBtn: $('startBtn'),
-  startLabel: $('startLabel'),
-  orbSub: document.querySelector('.orb-sub'),
-  statusPill: $('statusPill'),
-  timer: $('sessionTimer'),
-  delaySlider: $('delaySlider'),
-  delayValue: $('delayValue'),
-  delayHint: $('delayHint'),
-  volumeSlider: $('volumeSlider'),
-  volumeValue: $('volumeValue'),
-  meter: $('meter'),
-  meterFill: $('meterFill'),
-  meterLabel: $('meterLabel'),
-  inWave: $('inWaveCanvas'),
-  wave: $('waveCanvas'),
-  echoLabel: $('echoLabel'),
-  echoLate: $('echoLate'),
-  trailTime: $('trailTime'),
-  tunnelCaption: $('tunnelCaption'),
-  tunnelFill: $('tunnelFill'),
-  tunnelTicks: $('tunnelTicks'),
-  tunnelPulse: $('tunnelPulse'),
-  themeToggle: $('themeToggle'),
-  orbRingSvg: $('orbRingSvg'),
-  orbRing: $('orbRing'),
-  narrateHead: $('narrateHead'),
-  narrateSub: $('narrateSub'),
-  warn: $('feedbackWarn'),
-  warnText: $('feedbackWarnText'),
-  notice: $('notice'),
-  demoBadge: $('demoBadge'),
-};
-
-const params = new URLSearchParams(window.location.search);
-const DEMO = params.get('demo') === '1';
-
+const byId = (id) => document.getElementById(id);
+const startButton = byId('startBtn');
+const delaySlider = byId('delaySlider');
+const volumeSlider = byId('volumeSlider');
+const status = byId('sessionStatus');
+const note = byId('sessionNote');
+const timer = byId('sessionTimer');
+const warning = byId('feedbackWarn');
+const meter = byId('meter');
+const meterFill = byId('meterFill');
+const meterLabel = byId('meterLabel');
+const speakerStatus = byId('speakerStatus');
+const rulerFill = byId('rulerFill');
+const rulerMarker = byId('rulerMarker');
+const rulerTrack = rulerMarker.parentElement;
+const rulerTicks = byId('rulerTicks');
+const rulerLabels = byId('rulerLabels');
+const inputTrace = makeTrace('inWaveCanvas');
+const outputTrace = makeTrace('outWaveCanvas');
+const mediaMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const forcedColors = matchMedia('(forced-colors: active)');
+const params = new URLSearchParams(location.search);
+const demo = params.get('demo') === '1';
 const state = new EchoState();
-const guard = new FeedbackGuard();
 
-let audioCtx = null;
-let stream = null;
-let graph = null;
-let rafId = null;
-let timerId = null;
-let startedAt = null;
-let echoAt = null;
-let primeStart = null;
-let ducked = false;
+let palette;
+let session = null;
+let frame = 0;
+let rulerWidth = 0;
+let tickElements = [];
+let lastDraw = -Infinity;
 
-const inCtx = els.inWave.getContext('2d');
-const outCtx = els.wave.getContext('2d');
-const inputData = new Uint8Array(2048);
-const outputData = new Uint8Array(2048);
-
-// Canvas colours come from the CSS tokens, so the waveforms follow the
-// theme. Hex/rgba only — canvas does not take the OKLCH token values.
-let palette = {
-  live: '#8b7cff', echo: '#ff6a3d',
-  ghostLive: 'rgba(139, 124, 255, 0.4)', ghostEcho: 'rgba(255, 106, 61, 0.35)',
-  flatLive: 'rgba(139, 124, 255, 0.35)', flatEcho: 'rgba(255, 106, 61, 0.35)',
+const delaySeconds = () => clampDelay(delaySlider.value);
+const seconds = (value) => `${value.toFixed(1)} s`;
+const micActive = () => state.state === 'listening' || state.state === 'echoing';
+const statusLabels = {
+  idle: 'Ready',
+  requesting: 'Allow mic access',
+  listening: 'Listening',
+  echoing: 'Echoing',
+  error: 'Mic unavailable',
 };
 
-function cssVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function setText(element, text) {
+  if (element.textContent !== text) element.textContent = text;
 }
 
-function readPalette() {
-  const next = {
-    live: cssVar('--wave-live'),
-    echo: cssVar('--wave-echo'),
-    ghostLive: cssVar('--ghost-live'),
-    ghostEcho: cssVar('--ghost-echo'),
-    flatLive: cssVar('--flat-live'),
-    flatEcho: cssVar('--flat-echo'),
-  };
-  for (const [key, value] of Object.entries(next)) {
-    if (value) palette[key] = value;
+function makeTrace(id) {
+  const canvas = byId(id);
+  return { canvas, context: canvas.getContext('2d'), samples: new Uint8Array(2048) };
+}
+
+function syncTheme() {
+  const root = document.documentElement;
+  const style = getComputedStyle(root);
+  const color = (role) => style.getPropertyValue(`--${role}`).trim();
+  palette = { grid: color('line'), trace: color('trace'), accent: color('accent') };
+  if (forcedColors.matches) palette = { grid: 'ButtonBorder', trace: 'CanvasText', accent: 'Highlight' };
+  if (inputTrace.scale) drawTraces();
+}
+
+function fitTraces() {
+  const ratio = Math.min(devicePixelRatio || 1, 2);
+  let resized = false;
+  for (const trace of [inputTrace, outputTrace]) {
+    const { canvas } = trace;
+    const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
+    const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+    if (trace.scale === ratio && canvas.width === width && canvas.height === height) continue;
+    canvas.width = width;
+    canvas.height = height;
+    trace.scale = ratio;
+    resized = true;
   }
+  rulerWidth = rulerTrack.clientWidth;
+  if (resized) drawTraces();
 }
 
-// Dark is the default (a night-time tool, used in public); ?theme=light
-// previews the light theme, and the header button switches for the session.
-function applyTheme(name) {
-  document.documentElement.dataset.theme = name;
-  els.themeToggle.textContent = name === 'light' ? 'Dark' : 'Light';
-  els.themeToggle.setAttribute(
-    'aria-label',
-    name === 'light' ? 'Switch to dark theme' : 'Switch to light theme',
-  );
-  readPalette();
-}
+function drawTrace(trace, active, stroke) {
+  const { canvas, context, samples, scale } = trace;
+  if (!context) return;
+  const { width, height } = canvas;
+  const mid = height / 2;
+  context.clearRect(0, 0, width, height);
 
-function currentDelay() {
-  return clampDelay(els.delaySlider.value);
-}
+  context.strokeStyle = palette.grid;
+  context.lineWidth = scale;
+  context.beginPath();
+  for (let i = 0; i <= 16; i++) {
+    const x = Math.min(width - .5, Math.floor(i * width / 16) + .5);
+    context.moveTo(x, 0);
+    context.lineTo(x, height);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const y = Math.min(height - .5, Math.floor(i * height / 4) + .5);
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+  }
+  context.stroke();
 
-function updateNarration() {
-  const prime = primeRemainingSeconds({ state: state.state, nowMs: performance.now(), echoAtMs: echoAt });
-  const { headline, sub } = narrationFor({
-    state: state.state,
-    delaySeconds: currentDelay(),
-    ducked,
-    primeRemaining: prime,
-    error: state.error,
-  });
-  els.narrateHead.textContent = headline;
-  els.narrateSub.textContent = sub;
-  document.body.dataset.state = state.state;
-}
-
-function setStatus(text, kind) {
-  els.statusPill.textContent = text;
-  els.statusPill.dataset.kind = kind;
-}
-
-function showNotice(message, kind = 'info') {
-  els.notice.hidden = false;
-  els.notice.textContent = message;
-  els.notice.dataset.kind = kind;
-}
-
-function hideNotice() {
-  els.notice.hidden = true;
-}
-
-function setRunning(running) {
-  els.startBtn.classList.toggle('running', running);
-  els.startLabel.textContent = running ? 'Stop echo' : 'Start echo';
-  if (els.orbSub) els.orbSub.textContent = running ? 'tap to stop' : 'tap to begin';
-  els.startBtn.setAttribute('aria-pressed', String(running));
-  els.delaySlider.disabled = false; // delay stays adjustable while echoing
-  els.volumeSlider.disabled = false;
-}
-
-function setSliderFill(slider) {
-  const min = Number(slider.min);
-  const max = Number(slider.max);
-  const pct = ((Number(slider.value) - min) / (max - min)) * 100;
-  slider.style.setProperty('--fill', `${pct}%`);
-}
-
-function renderMeter(level, peak) {
-  const pct = Math.round(Math.min(1, level) * 100);
-  els.meterFill.style.width = `${pct}%`;
-  els.meterFill.dataset.hot = peak >= 0.98 ? 'true' : 'false';
-  els.meter.setAttribute('aria-valuenow', String(pct));
-  els.meterLabel.textContent =
-    state.state === 'idle' ? 'Mic idle' : peak >= 0.98 ? 'Input pinned — very loud' : `Input level ${pct}%`;
-}
-
-function drawWaveOn(ctx, canvas, data, stroke, idlePhase) {
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  ctx.lineWidth = 2 * (window.devicePixelRatio || 1);
-  ctx.strokeStyle = stroke;
-  ctx.beginPath();
-  if (idlePhase != null) {
-    // Gentle ghost wave while idle — the room is quiet, the app is waiting.
-    for (let x = 0; x < w; x++) {
-      const env = Math.sin((x / w) * Math.PI); // swell in the middle
-      const y = h / 2 + Math.sin(x / 26 + idlePhase) * (h / 2 - 6) * 0.18 * env;
-      if (x === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
+  context.strokeStyle = active ? stroke : palette.trace;
+  context.lineWidth = scale * (active ? 1.5 : 1);
+  context.beginPath();
+  if (!active || mediaMotion.matches) {
+    context.moveTo(0, mid);
+    context.lineTo(width, mid);
   } else {
-    const step = Math.max(1, Math.floor(data.length / w));
-    for (let x = 0; x < w; x++) {
-      const v = (data[x * step] - 128) / 128;
-      const y = h / 2 + v * (h / 2 - 4);
-      if (x === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    const points = Math.min(width, samples.length);
+    for (let i = 0; i < points; i++) {
+      const x = i * width / Math.max(1, points - 1);
+      const sample = samples[Math.floor(i * samples.length / points)];
+      const y = mid - ((sample - 128) / 128) * mid * .9;
+      if (i === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
     }
   }
-  ctx.stroke();
+  context.stroke();
 }
 
-function drawFlat(ctx, canvas, stroke) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.lineWidth = 2 * (window.devicePixelRatio || 1);
-  ctx.strokeStyle = stroke;
-  ctx.beginPath();
-  ctx.moveTo(0, canvas.height / 2);
-  ctx.lineTo(canvas.width, canvas.height / 2);
-  ctx.stroke();
+function speakerAudible() {
+  return state.state === 'echoing' && Number(volumeSlider.value) > 0;
 }
 
-function fitCanvas() {
-  for (const [canvas] of [[els.inWave], [els.wave]]) {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.round(rect.width * dpr));
-    canvas.height = Math.max(1, Math.round(rect.height * dpr));
+function drawTraces() {
+  drawTrace(inputTrace, micActive(), palette.trace);
+  drawTrace(outputTrace, speakerAudible(), palette.accent);
+}
+
+function renderMeter(rms = 0, peak = 0) {
+  const percent = Math.round(rms * 100);
+  meterFill.style.transform = `scaleX(${rms})`;
+  meterFill.toggleAttribute('data-hot', peak >= FEEDBACK_PEAK);
+  const value = String(percent);
+  if (meter.getAttribute('aria-valuenow') !== value) meter.setAttribute('aria-valuenow', value);
+  setText(meterLabel, micActive() ? (peak >= FEEDBACK_PEAK ? 'Peak' : `${percent}%`) : 'Off');
+}
+
+function renderRuler(progress = 0) {
+  const active = micActive();
+  const echoing = state.state === 'echoing';
+  const steady = echoing && mediaMotion.matches;
+  rulerMarker.hidden = !active;
+  rulerMarker.style.transform = `translateX(${progress * Math.max(0, rulerWidth - 4)}px)`;
+  rulerFill.style.transform = `scaleX(${echoing ? 1 : progress})`;
+  for (const { element, fraction } of tickElements) {
+    element.toggleAttribute('data-passed', active && (steady || progress >= fraction));
   }
 }
 
-let tickPos = [];
+function renderStatus(now = performance.now()) {
+  const phase = state.state;
+  document.body.dataset.state = phase;
+  status.dataset.kind = phase;
+  setText(status, statusLabels[phase]);
+  startButton.toggleAttribute('data-active', Boolean(session));
+  setText(byId('startLabel'), phase === 'requesting' ? 'Cancel' : session ? 'Stop echo' : 'Start echo');
+  renderSpeaker();
+  renderNote(now);
+}
 
-function renderTicks() {
-  tickPos = tickPositions(currentDelay());
-  els.tunnelTicks.replaceChildren(...tickPos.map((p) => {
-    const tick = document.createElement('span');
-    tick.className = 'tunnel-tick';
-    tick.style.left = `${p * 100}%`;
-    return tick;
+function renderNote(now) {
+  const phase = state.state;
+  setText(note, narrationFor({
+    state: phase,
+    delaySeconds: delaySeconds(),
+    primeRemaining: primeRemainingSeconds({ state: phase, nowMs: now, echoAtMs: session?.echoAt }),
+    error: state.error,
+    demo,
   }));
 }
 
-function renderTunnel(now) {
-  const progress = trailProgress({
-    state: state.state,
-    nowMs: now,
-    primeStartMs: primeStart,
-    echoAtMs: echoAt,
-    delaySeconds: currentDelay(),
-  });
-  const active = state.state === 'listening' || state.state === 'echoing';
-  els.tunnelPulse.classList.toggle('on', active);
-  els.tunnelPulse.style.left = `${progress * 100}%`;
-  els.tunnelFill.style.width = state.state === 'echoing' ? '100%' : `${progress * 100}%`;
-  // The ruler ticks light up as the pulse passes them — violet while the
-  // delay primes, coral once the echo is looping.
-  const lit = litTicks(tickPos, active ? progress : 0);
-  [...els.tunnelTicks.children].forEach((tick, i) => {
-    tick.classList.toggle('lit-live', state.state === 'listening' && lit[i]);
-    tick.classList.toggle('lit-echo', state.state === 'echoing' && lit[i]);
-  });
-  // The ring around the start button is the same progress, made useful:
-  // it fills while the delay primes and stays full while echoing.
-  if (state.state === 'listening') {
-    els.orbRingSvg.dataset.mode = 'listening';
-    els.orbRingSvg.classList.add('on');
-    els.orbRing.style.strokeDashoffset = String(primingRingOffset(progress) * 100);
-  } else if (state.state === 'echoing') {
-    els.orbRingSvg.dataset.mode = 'echoing';
-    els.orbRingSvg.classList.add('on');
-    els.orbRing.style.strokeDashoffset = '0';
-  } else {
-    els.orbRingSvg.classList.remove('on');
-  }
-  els.echoLabel.textContent =
-    state.state === 'idle' ? 'Speaker idle'
-    : state.state === 'listening' ? 'Waiting'
-    : state.state === 'echoing' ? 'Live'
-    : 'Speaker idle';
-}
+function syncDelay() {
+  const delay = delaySeconds();
+  const text = seconds(delay);
+  setText(byId('delayValue'), text);
+  delaySlider.setAttribute('aria-valuetext', `${delay.toFixed(1)} seconds`);
+  setText(byId('trailTime'), `${text} delay`);
 
-// Demo simulation: a loud "reel" that swells and dips, so the meter,
-// waveforms, and echo state can be seen without a mic.
-function demoSample(t) {
-  const env = 0.55 + 0.4 * Math.sin(t / 900) * Math.sin(t / 3100);
-  for (let i = 0; i < outputData.length; i++) {
-    const s = Math.sin(i / 9 + t / 90) * 0.55 + Math.sin(i / 3.1 - t / 47) * 0.3;
-    outputData[i] = 128 + Math.round(s * 127 * Math.max(0.05, env));
-    inputData[i] = outputData[i];
-  }
-  return { rms: rmsFromTimeDomain(inputData), peak: peakFromTimeDomain(inputData) };
-}
+  tickElements = [0, ...tickPositions(delay), 1].map((fraction) => {
+    const element = document.createElement('span');
+    element.className = 'ruler-tick';
+    element.style.left = `${fraction * 100}%`;
+    return { element, fraction };
+  });
+  rulerTicks.replaceChildren(...tickElements.map(({ element }) => element));
 
-function tick() {
-  const now = performance.now();
-  if (state.state === 'idle' || state.state === 'error') {
-    renderMeter(0, 0);
-    const phase = now / 1400;
-    drawWaveOn(inCtx, els.inWave, null, palette.ghostLive, phase);
-    drawWaveOn(outCtx, els.wave, null, palette.ghostEcho, phase + 1.2);
-    renderTunnel(now);
-    rafId = requestAnimationFrame(tick);
-    return;
-  }
-  if (DEMO) {
-    const { rms, peak } = demoSample(now);
-    renderMeter(rms, peak);
-    drawWaveOn(inCtx, els.inWave, inputData, palette.live);
-    drawWaveOn(outCtx, els.wave, outputData, palette.echo);
-    if (state.state === 'listening' && echoAt && now >= echoAt) {
-      state.go('echoing');
-      setStatus('Echoing', 'echoing');
+  // Only the ends and whole seconds are labelled so short intervals
+  // stay legible on a phone. Intermediate half seconds still have ticks.
+  const marks = [0];
+  for (let mark = 1; mark <= delay - .35; mark++) marks.push(mark);
+  marks.push(delay);
+  rulerLabels.replaceChildren(...marks.map((mark, index) => {
+    const label = document.createElement('span');
+    label.className = 'ruler-label';
+    if (index > 0 && index < marks.length - 1) label.style.left = `${mark / delay * 100}%`;
+    label.textContent = mark === 0 ? '0 s' : `+${seconds(mark)}`;
+    return label;
+  }));
+
+  if (micActive()) {
+    session.graph?.setDelay(delay);
+    const now = performance.now();
+    if (state.state === 'listening') {
+      session.primeStart = now;
+      session.echoAt = now + delay * 1000;
+    } else {
+      session.echoAt = now;
     }
-    if (state.state === 'echoing') setStatus('Echoing', 'echoing');
-  } else if (graph) {
-    graph.inputAnalyser.getByteTimeDomainData(inputData);
-    graph.outputAnalyser.getByteTimeDomainData(outputData);
-    const rms = rmsFromTimeDomain(inputData);
-    const peak = peakFromTimeDomain(inputData);
-    renderMeter(rms, peak);
-    drawWaveOn(inCtx, els.inWave, inputData, palette.live);
-    drawWaveOn(outCtx, els.wave, outputData, palette.echo);
-    const action = guard.update(peak, now);
+  }
+  renderRuler();
+  renderStatus();
+}
+
+function renderSpeaker() {
+  const phase = state.state;
+  setText(speakerStatus, phase === 'listening' ? 'Waiting' : phase === 'echoing'
+    ? (speakerAudible() ? 'On' : 'Muted')
+    : 'Off');
+}
+
+function syncVolume() {
+  const value = Number(volumeSlider.value);
+  setText(byId('volumeValue'), `${value}%`);
+  volumeSlider.setAttribute('aria-valuetext', `${value} percent`);
+  session?.graph?.setVolume(value);
+  renderSpeaker();
+  if (micActive()) drawTraces();
+}
+
+function sampleDemo(samples, time) {
+  const phase = time * .00012;
+  for (let i = 0; i < samples.length; i++) {
+    const x = i / samples.length;
+    const phrase = Math.sin(2 * Math.PI * (x * 2.2 - phase));
+    const envelope = .14 + .73 * Math.max(0, phrase) ** 1.7;
+    const carrier = .68 * Math.sin(i * .071 + phase * 20) + .28 * Math.sin(i * .23 - phase * 36);
+    samples[i] = 128 + Math.round(127 * envelope * carrier);
+  }
+}
+
+function animate(now) {
+  const current = session;
+  if (!current || !micActive()) return;
+  const { graph, guard, primeStart, echoAt, startedAt } = current;
+  if (state.state === 'listening' && now >= echoAt) {
+    state.go('echoing');
+    renderStatus(now);
+  }
+  const echoing = state.state === 'echoing';
+
+  if (graph) {
+    graph.inputAnalyser.getByteTimeDomainData(inputTrace.samples);
+    const action = guard.update(peakFromTimeDomain(inputTrace.samples), now);
     if (action === 'duck') {
-      ducked = true;
       graph.duck();
-      els.warn.hidden = false;
-      els.warnText.textContent =
-        'Input is pinned at max, so the output was turned down. Lower the volume or point the speaker away from the mic.';
+      setText(warning, 'Output volume lowered. Turn it down or point the speaker away from the mic.');
     } else if (action === 'restore') {
-      ducked = false;
       graph.restore();
-      els.warn.hidden = true;
+      setText(warning, '');
     }
-    if (state.state === 'listening' && echoAt && now >= echoAt) {
-      state.go('echoing');
-      setStatus('Echoing', 'echoing');
-    }
-    if (state.state === 'echoing') setStatus('Echoing', 'echoing');
   }
-  renderTunnel(now);
-  updateNarration();
-  rafId = requestAnimationFrame(tick);
+
+  // The display needs fewer updates than the feedback guard. Reduced
+  // motion keeps the traces still and samples the numeric level once a second.
+  if (now - lastDraw >= (mediaMotion.matches ? 1000 : 1000 / 30)) {
+    if (demo) {
+      sampleDemo(inputTrace.samples, now - startedAt);
+      if (echoing) sampleDemo(outputTrace.samples, now - startedAt - delaySeconds() * 1000);
+    } else if (echoing && !mediaMotion.matches) {
+      graph.outputAnalyser.getByteTimeDomainData(outputTrace.samples);
+    }
+    renderMeter(rmsFromTimeDomain(inputTrace.samples), peakFromTimeDomain(inputTrace.samples));
+    drawTraces();
+    lastDraw = now;
+  }
+
+  if (!echoing) renderNote(now);
+  renderRuler(trailProgress({
+    state: state.state, nowMs: now, primeStartMs: primeStart, echoAtMs: echoAt, delaySeconds: delaySeconds(),
+  }));
+  setText(timer, formatTimer((now - startedAt) / 1000));
+  frame = requestAnimationFrame(animate);
 }
 
-function startTimer() {
-  startedAt = Date.now();
-  els.timer.textContent = '00:00';
-  timerId = setInterval(() => {
-    els.timer.textContent = formatTimer((Date.now() - startedAt) / 1000);
-  }, 500);
-}
-
-function stopTimer() {
-  if (timerId) clearInterval(timerId);
-  timerId = null;
-}
-
-function beginListening() {
+function beginListening(current) {
+  current.startedAt = performance.now();
+  current.primeStart = current.startedAt;
+  current.echoAt = current.primeStart + delaySeconds() * 1000;
   state.go('listening');
-  setStatus('Listening', 'listening');
-  primeStart = performance.now();
-  echoAt = performance.now() + currentDelay() * 1000;
-  updateNarration();
-  fitCanvas();
-  if (!rafId) tick(); // the loop is already running from init; don't double it
+  renderStatus();
+  lastDraw = -Infinity;
+  frame = requestAnimationFrame(animate);
+}
+
+function releaseSession() {
+  const current = session;
+  session = null;
+  cancelAnimationFrame(frame);
+  current?.graph?.disconnect();
+  current?.stream?.getTracks().forEach((track) => track.stop());
+  current?.context?.close().catch(() => {});
+  setText(timer, '00:00');
+  setText(warning, '');
+}
+
+function renderRest() {
+  renderStatus();
+  renderMeter();
+  renderRuler();
+  drawTraces();
+}
+
+function stop() {
+  releaseSession();
+  state.reset();
+  renderRest();
+}
+
+function fail(message) {
+  releaseSession();
+  state.fail(message);
+  renderRest();
 }
 
 async function start() {
-  hideNotice();
-  els.warn.hidden = true;
-  ducked = false;
   if (!state.go('requesting')) return;
-  setStatus('Requesting microphone…', 'busy');
-  updateNarration();
-  setRunning(true);
-  startTimer();
-
-  if (DEMO) {
-    beginListening();
+  const current = { guard: new FeedbackGuard() };
+  session = current;
+  renderStatus();
+  if (demo) {
+    beginListening(current);
     return;
   }
 
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    state.fail('This browser cannot access a microphone.');
-    showNotice('Your browser cannot access a microphone. Open EchoBack in a modern mobile browser (Chrome or Safari) and allow mic access.', 'error');
-    setStatus('Microphone unavailable', 'error');
-    setRunning(false);
-    stopTimer();
-    updateNarration();
+  const Audio = window.AudioContext || window.webkitAudioContext;
+  if (!navigator.mediaDevices?.getUserMedia || !Audio) {
+    fail(window.isSecureContext
+      ? 'This browser cannot open the microphone. Try a current version of Chrome or Safari.'
+      : 'Open EchoBack over HTTPS to use your microphone.');
     return;
   }
 
   try {
-    stream = await navigator.mediaDevices.getUserMedia(micConstraints());
-    if (state.state !== 'requesting') {
-      // Tapped Stop while the permission prompt was open: the mic arrived
-      // after the user already walked away. Drop the stream, stay stopped.
-      stopTracks();
+    current.context = new Audio();
+    // Resume during the button gesture on mobile. Capture any rejection
+    // while the browser permission prompt is still open.
+    const resumed = current.context.resume().then(() => true, () => false);
+    const stream = await navigator.mediaDevices.getUserMedia(micConstraints());
+    if (session !== current) {
+      stream.getTracks().forEach((track) => track.stop());
       return;
     }
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-    graph = createEchoGraph(audioCtx, stream, {
-      delaySeconds: Number(els.delaySlider.value),
-      volumePercent: Number(els.volumeSlider.value),
+    current.stream = stream;
+    const playing = await resumed;
+    if (session !== current) return;
+    if (!playing) throw new Error('Audio output unavailable');
+
+    current.graph = createEchoGraph(current.context, stream, {
+      delaySeconds: delaySeconds(),
+      volumePercent: Number(volumeSlider.value),
     });
-    beginListening();
-  } catch (err) {
-    if (state.state !== 'requesting') {
-      // Same walk-away: a denied prompt after Stop must not flip the
-      // stopped UI into an error state.
-      stopTracks();
-      return;
+    for (const track of stream.getAudioTracks()) {
+      track.addEventListener('ended', () => {
+        if (session === current) fail('The microphone disconnected. Check it and start again.');
+      }, { once: true });
     }
-    const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
-    state.fail(denied ? 'Microphone permission denied.' : 'Microphone unavailable.');
-    showNotice(
-      denied
-        ? 'Microphone permission was denied. Allow mic access in your browser settings, then tap Start echo again.'
-        : 'Could not open the microphone. Check another app is not using it, then try again.',
-      'error',
-    );
-    setStatus('Microphone unavailable', 'error');
-    setRunning(false);
-    stopTimer();
-    stopTracks();
-    updateNarration();
+    beginListening(current);
+  } catch (error) {
+    if (session !== current) return;
+    const denied = ['NotAllowedError', 'SecurityError'].includes(error.name);
+    fail(denied
+      ? 'Allow microphone access in your browser settings, then start again.'
+      : 'Could not open the microphone. Check that it’s connected, then try again.');
   }
 }
 
-function stopTracks() {
-  if (stream) {
-    stream.getTracks().forEach((t) => t.stop());
-    stream = null;
-  }
-  if (graph) {
-    graph.disconnect();
-    graph = null;
-  }
-  if (audioCtx) {
-    audioCtx.close().catch(() => {});
-    audioCtx = null;
-  }
-}
+startButton.addEventListener('click', () => session ? stop() : start());
+delaySlider.addEventListener('input', syncDelay);
+volumeSlider.addEventListener('input', syncVolume);
+document.addEventListener('themechange', syncTheme);
+mediaMotion.addEventListener('change', drawTraces);
+forcedColors.addEventListener('change', syncTheme);
+window.addEventListener('pagehide', () => { if (session) stop(); });
 
-function stop() {
-  if (rafId) cancelAnimationFrame(rafId);
-  rafId = null;
-  stopTimer();
-  stopTracks();
-  state.reset();
-  ducked = false;
-  echoAt = null;
-  primeStart = null;
-  setStatus('Idle', 'idle');
-  setRunning(false);
-  renderMeter(0, 0);
-  renderTunnel(performance.now());
-  drawFlat(inCtx, els.inWave, palette.flatLive);
-  drawFlat(outCtx, els.wave, palette.flatEcho);
-  els.timer.textContent = '00:00';
-  els.warn.hidden = true;
-  updateNarration();
-  tick(); // keep the idle ghost wave breathing
-}
+delaySlider.value = String(DELAY_DEFAULT);
+volumeSlider.value = String(VOLUME_DEFAULT);
+byId('demoBadge').hidden = !demo;
+syncTheme();
+syncDelay();
+syncVolume();
+fitTraces();
+new ResizeObserver(fitTraces).observe(inputTrace.canvas);
+if (demo && params.get('autostart') === '1') start();
 
-function syncDelayUI() {
-  const v = currentDelay();
-  els.delayValue.textContent = `${v.toFixed(1)}s`;
-  els.trailTime.textContent = `${v.toFixed(1)}s late`;
-  els.echoLate.textContent = `${v.toFixed(1)}s`;
-  els.tunnelCaption.textContent =
-    `Sound travels the delay line — what the mic hears now reaches the speaker ${v.toFixed(1)} seconds later.`;
-  els.delayHint.textContent = `${delayCaption(v)} Adjustable while echoing.`;
-  setSliderFill(els.delaySlider);
-  renderTicks();
-}
-
-els.startBtn.addEventListener('click', () => {
-  if (state.state === 'idle' || state.state === 'error') start();
-  else stop();
-});
-
-els.delaySlider.addEventListener('input', () => {
-  syncDelayUI();
-  const v = currentDelay();
-  if (graph) graph.setDelay(v);
-  if (state.state === 'listening' || state.state === 'echoing') {
-    echoAt = performance.now() + v * 1000;
-  }
-  updateNarration();
-});
-
-els.volumeSlider.addEventListener('input', () => {
-  const v = Math.round(Number(els.volumeSlider.value));
-  els.volumeValue.textContent = `${v}%`;
-  setSliderFill(els.volumeSlider);
-  if (graph) graph.setVolume(v);
-});
-
-// Initial paint.
-const themeParam = params.get('theme');
-applyTheme(themeParam === 'light' ? 'light' : 'dark');
-els.themeToggle.addEventListener('click', () => {
-  applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
-});
-els.delaySlider.value = String(DELAY_DEFAULT);
-els.volumeSlider.value = String(VOLUME_DEFAULT);
-els.volumeValue.textContent = `${VOLUME_DEFAULT}%`;
-syncDelayUI();
-setSliderFill(els.volumeSlider);
-setStatus('Idle', 'idle');
-renderMeter(0, 0);
-updateNarration();
-fitCanvas();
-window.addEventListener('resize', fitCanvas);
-tick(); // idle ghost wave + tunnel at rest
-if (DEMO) {
-  els.demoBadge.hidden = false;
-  showNotice('Demo mode — simulated audio, no microphone in use. On a real phone, tap Start echo and allow mic access.', 'info');
-  if (params.get('autostart') === '1') start();
-}
-
-// Layout-check hook for tests/layout.test.js: ?layoutcheck=1 writes a
-// report into the DOM describing viewport width and horizontal overflow.
-if (params.get('layoutcheck') === '1') {
-  const report = () => {
-    const vw = document.documentElement.clientWidth;
-    const offenders = [];
-    for (const el of document.querySelectorAll('body *')) {
-      const r = el.getBoundingClientRect();
-      if (r.width > vw + 1 || r.right > vw + 1 || r.left < -1) {
-        offenders.push(`${el.tagName}.${String(el.className).split(' ')[0]} w=${Math.round(r.width)} right=${Math.round(r.right)}`);
-      }
-    }
-    const pre = document.createElement('pre');
-    pre.id = 'layout-check';
-    pre.style.display = 'none';
-    pre.textContent = JSON.stringify({ vw, overflow: offenders.length > 0, offenders: offenders.slice(0, 10) });
-    document.body.appendChild(pre);
-  };
-  window.addEventListener('load', () => setTimeout(report, 400));
-  setTimeout(report, 1500);
+if (document.documentElement.dataset.offline === 'true' && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {
+    // Network use remains available if the browser disables offline storage.
+  });
 }
