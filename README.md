@@ -34,4 +34,4 @@ Recording starts only when you select **Record take**. A mono AudioWorklet taps 
 
 The local library holds 12 takes. When storage is full or unavailable, the current take remains available for download until you leave. Clearing browser site data deletes saved takes. Downloaded WAV files remain wherever you saved them.
 
-[Design rationale and launch checklist](design/brief.md)
+[Design rationale and launch checklist](design/brief.md) · [Verification and screenshots](design/verification.md)

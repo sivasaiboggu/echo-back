@@ -44,6 +44,8 @@ The existing static HTML, CSS and JavaScript fit a browser-based audio tool. Nat
 
 IndexedDB v1 stores each take with its UUID, creation time, duration, peaks and WAV blob. The capacity check and write share one transaction. A one-take in-memory fallback enables download when storage fails. The offline worker caches app files including both font subsets and the worklet. Chromium CI verifies controls, layout and axe and publishes a static artifact. The app has no backend or account setup.
 
+[Measured contrast, before/after captures and Lighthouse](verification.md)
+
 ## Launch checklist
 
 - [x] Run the full test suite, contrast audit and production build.
