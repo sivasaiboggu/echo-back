@@ -1,5 +1,5 @@
 {
-  "description": "EchoBack plays room audio on a short delay through your speaker. No recording or upload.",
+  "description": "EchoBack plays your microphone on a short delay and records optional takes on your device.",
   "license": "MIT",
   "name": "echo-back",
   "scripts": {
@@ -16,6 +16,7 @@
     "node": ">=24"
   },
   "devDependencies": {
+    "axe-core": "4.14.1",
     "playwright-core": "1.65.1"
   }
 }

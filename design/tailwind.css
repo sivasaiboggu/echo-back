@@ -15,6 +15,7 @@
   --color-warning: var(--warning);
   --color-error: var(--error);
   --color-shadow: var(--shadow);
+  --color-tunnel-line: var(--tunnel-line);
   --font-sans: var(--type-sans);
   --font-mono: var(--type-mono);
   --text-display: var(--type-display);
@@ -35,6 +36,6 @@
   --shadow-0: var(--elevation-0);
   --shadow-1: var(--elevation-1);
   --shadow-2: var(--elevation-2);
-  --radius-edge: 4px;
+  --radius-edge: 8px;
   --radius-thumb: 2px;
 }

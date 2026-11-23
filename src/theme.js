@@ -16,7 +16,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const light = root.dataset.theme === 'light';
     label.textContent = light ? 'Dark mode' : 'Light mode';
     color.content = getComputedStyle(root).getPropertyValue('--page').trim();
-    for (const { element, href } of links) element.href = light ? `${href}?theme=light` : href;
+    for (const { element, href } of links) {
+      const url = new URL(href, location.href);
+      if (light) url.searchParams.set('theme', 'light');
+      element.href = url.href;
+    }
     if (announce) document.dispatchEvent(new Event('themechange'));
   }
 

@@ -17,8 +17,9 @@ if (publicUrl && !publicUrl.pathname.endsWith('/')) publicUrl.pathname += '/';
 const assets = [
   '404.html', '500.html', 'index.html', 'privacy.html', 'tokens.css', 'styles.css',
   'manifest.webmanifest', 'src/app.js', 'src/audio-engine.js', 'src/ui-helpers.js', 'src/theme.js',
+  'src/tunnel.js', 'src/takes-ui.js', 'src/take-store.js', 'src/take-recording.js', 'src/record-worklet.js',
   'assets/mark.svg', 'assets/icon-192.png', 'assets/icon-512.png', 'assets/echo-back-og.png',
-  'assets/grain.png', 'assets/ibm-plex-sans-latin.woff2', 'assets/OFL.txt',
+  'assets/grain.png', 'assets/chakra-petch-400-latin.woff2', 'assets/chakra-petch-600-latin.woff2', 'assets/OFL.txt',
 ];
 
 for (const [file, expected] of [['tokens.css', variables], ['design/tailwind.css', tailwind]]) {
