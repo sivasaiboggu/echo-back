@@ -89,6 +89,8 @@ async function capture(browser, origin, shot, file) {
         await page.waitForTimeout(550);
       }
     }
+    await page.evaluate(() =>
+      Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {}))));
     const pathToImage = resolve(directory, `${file}-${name}.png`);
     if (state === 'playback') {
       await page.locator('#takes').screenshot({ path: pathToImage, animations: 'disabled' });

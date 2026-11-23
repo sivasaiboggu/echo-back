@@ -1,6 +1,6 @@
 {
   "lighthouseVersion": "13.6.0",
-  "capturedAt": "2026-11-23T04:02:30.538Z",
+  "capturedAt": "2026-11-23T04:06:38.184Z",
   "environment": {
     "browser": "156.0.0.0",
     "formFactor": "mobile",
@@ -23,17 +23,17 @@
     "source": "Production dist served on localhost"
   },
   "scores": {
-    "performance": 99,
+    "performance": 100,
     "accessibility": 100,
     "best-practices": 100,
     "seo": 100,
     "agentic-browsing": 100
   },
   "metrics": {
-    "firstContentfulPaintMs": 1056,
-    "largestContentfulPaintMs": 1056,
-    "speedIndexMs": 1056,
-    "totalBlockingTimeMs": 98,
+    "firstContentfulPaintMs": 1062,
+    "largestContentfulPaintMs": 1062,
+    "speedIndexMs": 1102,
+    "totalBlockingTimeMs": 55,
     "cumulativeLayoutShift": 0
   },
   "warnings": []

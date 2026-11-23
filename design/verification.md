@@ -41,7 +41,7 @@ The minimum across the rendered OKLCH colors, hex fallbacks and applicable surfa
 
 ## Lighthouse mobile
 
-Lighthouse 13.6.0 and Chromium 156 used simulated mobile throttling on the production build served on localhost. Performance 99, accessibility 100, best practices 100, SEO 100. LCP 1.06 s, TBT 98 ms, CLS 0. This is a lab result. See the [recorded settings and measurements](lighthouse-mobile.json).
+Lighthouse 13.6.0 and Chromium 156 used simulated mobile throttling on the production build served on localhost. Performance 100, accessibility 100, best practices 100, SEO 100. LCP 1.06 s, TBT 55 ms, CLS 0. This is a lab result. See the [recorded settings and measurements](lighthouse-mobile.json).
 
 To reproduce, build and serve `dist/`, then run the audit with Lighthouse’s default mobile settings.
 
