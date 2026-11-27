@@ -17,8 +17,13 @@ after(async () => {
 
 for (const { width, theme } of [
   { width: 320, theme: 'dark' },
+  { width: 320, theme: 'light' },
   { width: 390, theme: 'dark' },
   { width: 390, theme: 'light' },
+  { width: 768, theme: 'dark' },
+  { width: 768, theme: 'light' },
+  { width: 1440, theme: 'dark' },
+  { width: 1440, theme: 'light' },
   { width: 1280, theme: 'dark' },
   { width: 1280, theme: 'light' },
 ]) {

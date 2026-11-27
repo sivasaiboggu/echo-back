@@ -2,21 +2,22 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' blob:; base-uri 'self'; object-src 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#171815" id="themeColor">
-  <meta name="description" content="EchoBack plays back what your microphone hears, two seconds late by default. Nothing is recorded or uploaded.">
+  <meta name="theme-color" content="#0e1119" id="themeColor">
+  <meta name="description" content="Hear your microphone on a short delay. Use EchoBack to practice aloud, then record and review takes on your device.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="EchoBack — Room sound, on a delay">
-  <meta property="og:description" content="Hear your room through your speaker with a short delay. Nothing is recorded.">
+  <meta property="og:description" content="Practice aloud with an adjustable echo or record a take to hear it back.">
   <meta property="og:image" content="./assets/echo-back-og.png">
-  <meta property="og:image:alt" content="EchoBack with two offset audio traces and a delay ruler.">
+  <meta property="og:image:alt" content="EchoBack’s coral signal passing through the delay tunnel.">
   <meta name="twitter:card" content="summary_large_image">
   <title>EchoBack — Room sound, on a delay</title>
   <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-192.png">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="preload" href="assets/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/chakra-petch-600-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/chakra-petch-400-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="styles.css">
   <script src="src/theme.js"></script>
@@ -26,17 +27,15 @@
   <div class="shell">
     <header class="masthead">
       <a class="brand" href="./index.html" data-theme-link aria-label="EchoBack home">
-        <svg viewBox="0 0 32 32" class="brand-mark" aria-hidden="true">
-          <path d="M2 10h7l3-5 4 10 3-5h11M2 22h12l3-5 4 10 3-5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        </svg>
+        <img src="assets/mark.svg" width="32" height="32" alt="">
         <span>EchoBack</span>
       </a>
       <nav class="masthead-nav" aria-label="Page">
-        <a href="#how">How it works</a>
+        <a class="wide-nav" href="#live">Live echo</a>
+        <a href="#takes">Takes</a>
+        <a class="wide-nav" href="#how">How it works</a>
         <button class="theme-toggle" id="themeToggle" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5">
-            <circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none"/>
-          </svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4v16"/></svg>
           <span id="themeLabel">Light mode</span>
         </button>
       </nav>
@@ -46,54 +45,56 @@
       <div class="intro">
         <h1>Room sound,<br>on a delay.</h1>
         <div class="intro-copy">
-          <p>Play back what your microphone hears, two seconds late by default. You can adjust the delay as you listen.</p>
-          <a class="privacy-link" href="privacy.html" data-theme-link>
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
-            Nothing is recorded
-          </a>
+          <p>Hear what your microphone picks up two seconds late by default. Practice aloud, then save a take to listen back.</p>
+          <p class="privacy-note"><a href="privacy.html" data-theme-link>Nothing is recorded</a> unless you choose Record take.</p>
         </div>
       </div>
 
-      <div class="desk">
+      <div class="desk" id="live">
         <section class="session" aria-labelledby="sessionHeading">
-          <div class="session-head">
+          <div class="panel-head session-head">
             <h2 id="sessionHeading">Session</h2>
             <span class="status" id="sessionStatus" data-kind="idle" role="status">Ready</span>
           </div>
-          <div class="session-controls">
-            <button id="startBtn" class="start" type="button" aria-describedby="sessionNote">
-              <svg class="start-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                <g class="icon-mic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6"/></g>
-                <path class="icon-stop" d="M7 7h10v10H7z" fill="currentColor" stroke="none"/>
-              </svg>
-              <span id="startLabel">Start echo</span>
-            </button>
+          <div class="transport">
             <span class="timer" id="sessionTimer" role="timer" aria-label="Session elapsed time">00:00</span>
+            <div class="transport-buttons">
+              <button id="startBtn" class="start button" type="button" aria-describedby="sessionNote">
+                <svg class="start-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <g class="icon-mic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6"/></g>
+                  <path class="icon-stop" d="M7 7h10v10H7z"/>
+                </svg>
+                <span id="startLabel">Start echo</span>
+              </button>
+              <button class="button record" id="recordBtn" type="button" disabled aria-describedby="recordHint">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5"/></svg>
+                <span id="recordLabel">Record take</span>
+              </button>
+            </div>
+            <p class="session-note" id="sessionNote">Start echo, then allow microphone access.</p>
+            <p class="feedback-note" id="feedbackWarn" role="status"></p>
+            <noscript><p class="feedback-note">Enable JavaScript to use the microphone and play sound back.</p></noscript>
+            <p class="record-note" id="recordStatus" role="status"></p>
+            <p class="record-note" id="recordClock" aria-hidden="true" hidden></p>
+            <span class="sr-only" id="recordHint">Start a live echo to record up to 60 seconds.</span>
           </div>
-          <p class="session-note" id="sessionNote">Start echo, then allow microphone access.</p>
-          <noscript><p class="feedback-note">Enable JavaScript to use the microphone and play sound back.</p></noscript>
-          <p class="feedback-note" id="feedbackWarn" role="status"></p>
+
         </section>
 
         <section class="signal" aria-labelledby="signalHeading">
-          <div class="signal-head">
-            <h2 id="signalHeading">Delay line</h2>
-            <span class="signal-delay" id="trailTime">2.0 s delay</span>
+          <div class="panel-head signal-head">
+            <h2 id="signalHeading">Delay tunnel</h2>
+            <span class="sr-only" id="trailTime">2.0 s delay</span>
           </div>
-          <p class="demo-note" id="demoBadge" hidden>Demo audio · microphone off</p>
-
           <div class="scope">
-            <div class="trace-head">
-              <h3>Microphone</h3>
-              <div class="trace-status">
-                <span id="meterLabel" aria-hidden="true">Off</span>
-                <div class="meter" role="meter" aria-label="Microphone input level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter">
-                  <div class="meter-fill" id="meterFill"></div>
-                </div>
+            <div class="tunnel">
+              <canvas id="tunnelCanvas" aria-hidden="true"></canvas>
+              <div class="tunnel-readout" aria-hidden="true">
+                <span class="tunnel-caption">Echo delay</span>
+                <span id="tunnelDelay" class="tunnel-number">2.0<span> s</span></span>
               </div>
+              <p class="demo-note" id="demoBadge" hidden>Demo audio · microphone off</p>
             </div>
-            <canvas id="inWaveCanvas" class="trace" aria-hidden="true"></canvas>
-
             <div class="ruler" aria-hidden="true">
               <div class="ruler-track">
                 <div class="ruler-fill" id="rulerFill"></div>
@@ -102,46 +103,104 @@
               </div>
               <div class="ruler-labels" id="rulerLabels"></div>
             </div>
-
-            <div class="trace-head">
-              <h3>Speaker</h3>
-              <span class="trace-status" id="speakerStatus">Off</span>
+            <div class="traces">
+              <div class="channel">
+                <div class="trace-head">
+                  <h3>Microphone</h3>
+                  <div class="trace-status">
+                    <span id="meterLabel" aria-hidden="true">Off</span>
+                    <div class="meter" role="meter" aria-label="Microphone input level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter">
+                      <div class="meter-fill" id="meterFill"></div>
+                    </div>
+                  </div>
+                </div>
+                <canvas id="inWaveCanvas" class="trace" aria-hidden="true"></canvas>
+              </div>
+              <div class="channel">
+                <div class="trace-head">
+                  <h3>Speaker</h3>
+                  <span class="trace-status" id="speakerStatus">Off</span>
+                </div>
+                <canvas id="outWaveCanvas" class="trace" aria-hidden="true"></canvas>
+              </div>
             </div>
-            <canvas id="outWaveCanvas" class="trace" aria-hidden="true"></canvas>
           </div>
-          <p class="signal-caption">The top trace is what the mic hears. The bottom trace is what plays back.</p>
         </section>
-
-        <section class="settings" aria-labelledby="settingsHeading">
-          <h2 id="settingsHeading">Settings</h2>
-          <div class="setting">
-            <div class="setting-head">
-              <label for="delaySlider">Echo delay</label>
-              <output id="delayValue" for="delaySlider" aria-live="off">2.0 s</output>
+        <section class="settings" aria-label="Echo settings">
+            <div class="setting">
+              <div class="setting-head">
+                <label for="delaySlider">Echo delay</label>
+                <output id="delayValue" for="delaySlider" aria-live="off">2.0 s</output>
+              </div>
+              <input type="range" id="delaySlider" min="0.5" max="3.0" step="0.1" value="2.0">
+              <div class="presets" aria-label="Delay presets" role="group">
+                <button type="button" class="preset" data-delay="0.5" aria-pressed="false">0.5 s</button>
+                <button type="button" class="preset" data-delay="1" aria-pressed="false">1 s</button>
+                <button type="button" class="preset" data-delay="2" aria-pressed="true">2 s</button>
+                <button type="button" class="preset" data-delay="3" aria-pressed="false">3 s</button>
+              </div>
             </div>
-            <input type="range" id="delaySlider" min="0.5" max="3.0" step="0.1" value="2.0">
-          </div>
-          <div class="setting">
-            <div class="setting-head">
-              <label for="volumeSlider">Output volume</label>
-              <output id="volumeValue" for="volumeSlider" aria-live="off">70%</output>
+            <div class="setting">
+              <div class="setting-head">
+                <label for="volumeSlider">Output volume</label>
+                <output id="volumeValue" for="volumeSlider" aria-live="off">70%</output>
+              </div>
+              <input type="range" id="volumeSlider" min="0" max="100" step="1" value="70">
             </div>
-            <input type="range" id="volumeSlider" min="0" max="100" step="1" value="70" aria-describedby="volumeHint">
-            <p class="setting-hint" id="volumeHint">Keep the volume moderate and point the speaker away from the mic.</p>
-          </div>
         </section>
       </div>
 
-      <section class="guide editorial" id="how" aria-labelledby="guideHeading">
-        <h2 id="guideHeading">How it works</h2>
-        <div>
-          <ol class="guide-steps">
-            <li><strong>Listen.</strong> The microphone picks up sound around you.</li>
-            <li><strong>Wait.</strong> The sound passes through a short delay you can set from 0.5 to 3 seconds.</li>
-            <li><strong>Play it back.</strong> The speaker plays the delayed sound. Select Stop echo to turn the mic off.</li>
-          </ol>
-          <p>Keep it brief in shared spaces. If someone asks what they’re hearing, tell them you’re playing the room sound back on a delay.</p>
+      <section class="takes editorial" id="takes" aria-labelledby="takesHeading">
+        <div class="section-lead">
+          <h2 id="takesHeading" tabindex="-1">Takes</h2>
+          <p>Saved in this browser.</p>
         </div>
+        <div class="take-library">
+          <p id="takesEmpty">Loading takes…</p>
+          <p id="takeMessage" role="status"></p>
+          <ul id="takeList" class="take-list" aria-label="Saved takes"></ul>
+          <div id="takePlayer" class="take-player" hidden>
+            <header class="player-head">
+              <h3 id="playerTitle">Take playback</h3>
+              <button id="playerClose" class="button compact" type="button">Close player</button>
+            </header>
+            <div class="player-controls">
+              <button id="playerToggle" class="button compact" type="button">Play</button>
+              <div class="player-position">
+                <div class="player-track">
+                  <div id="playerWave" class="player-wave" aria-hidden="true"></div>
+                  <div id="playerProgress" class="player-progress" aria-hidden="true"></div>
+                  <input id="playerSeek" type="range" min="0" max="0" step=".05" value="0" aria-label="Playback position">
+                </div>
+                <div class="player-times"><span id="playerTime">00:00</span><span id="playerDuration">00:00</span></div>
+              </div>
+              <label class="speed-label">Speed
+                <select id="playerSpeed"><option value=".75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option></select>
+              </label>
+            </div>
+            <audio id="takeAudio" preload="none"></audio>
+          </div>
+          <dialog id="deleteDialog" aria-labelledby="deleteTitle">
+            <h3 id="deleteTitle">Delete this take?</h3>
+            <p>This removes the recording from this browser.</p>
+            <form method="dialog">
+              <button class="button compact" value="cancel" autofocus>Keep take</button>
+              <button class="button compact" value="delete">Delete take</button>
+            </form>
+          </dialog>
+        </div>
+      </section>
+
+      <section class="guide editorial" id="how" aria-labelledby="guideHeading">
+        <div class="section-lead">
+          <h2 id="guideHeading">How it works</h2>
+          <a class="demo-link" href="./index.html?demo=1" data-theme-link>Try the silent demo</a>
+        </div>
+        <ol class="guide-steps">
+          <li><strong>Start the echo.</strong> Allow mic access. Use headphones to avoid feedback.</li>
+          <li><strong>Find your delay.</strong> Try 0.5 s for quick phrases or 2 s to hear a little more of what you said.</li>
+          <li><strong>Listen back.</strong> Record up to 60 seconds of mic audio, then open the take to play, download or delete it.</li>
+        </ol>
       </section>
     </main>
     <footer class="footer">

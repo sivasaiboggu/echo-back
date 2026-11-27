@@ -23,6 +23,8 @@ function mockParam(value = 0) {
   return {
     value,
     calls: [],
+    setValueAtTime(v, t) { this.calls.push(['setValueAtTime', v, t]); this.value = v; },
+    cancelScheduledValues(t) { this.calls.push(['cancelScheduledValues', t]); },
     setTargetAtTime(v, t, c) { this.calls.push(['setTargetAtTime', v, t, c]); this.value = v; },
     linearRampToValueAtTime(v) { this.calls.push(['linearRamp', v]); this.value = v; },
   };
@@ -36,6 +38,7 @@ function mockAudioContext() {
   const nodes = [];
   const ctx = {
     currentTime: 1.5,
+    sampleRate: 48000,
     destination: mockNode(),
     created: nodes,
     createMediaStreamSource() { const n = mockNode(); n.kind = 'source'; nodes.push(n); return n; },
@@ -256,6 +259,36 @@ describe('createEchoGraph', () => {
     graph.setVolume(100);
     assert.ok(Math.abs(gain.gain.value - GAIN_CAP * 0.3) < 1e-9);
     assert.equal(graph.baseGain, GAIN_CAP);
+  });
+  it('retimes initial output from the original connection time', () => {
+    const ctx = mockAudioContext();
+    const graph = createEchoGraph(ctx, {}, { delaySeconds: 2, smoothDelay: true });
+    assert.equal(graph.connectedAt, 1.5);
+    assert.equal(graph.echoAt, 3.5);
+    ctx.currentTime = 1.7;
+    graph.setDelay(0.5);
+    assert.equal(graph.echoAt, 2);
+    assert.deepEqual(ctx.created.filter((node) => node.kind === 'delay').map((node) => node.delayTime.value), [0.5, 0.5]);
+  });
+  it('retunes the silent tap and coalesces changes while a fade is running', () => {
+    const ctx = mockAudioContext();
+    const graph = createEchoGraph(ctx, {}, { delaySeconds: 2, smoothDelay: true });
+    const [first, second] = ctx.created.filter((node) => node.kind === 'delay');
+    const [, firstTapGain, secondTapGain] = ctx.created.filter((node) => node.kind === 'gain');
+    ctx.currentTime = 4;
+    graph.setDelay(1);
+    assert.equal(first.delayTime.value, 2);
+    assert.equal(second.delayTime.value, 1);
+    assert.deepEqual(firstTapGain.gain.calls.at(-1), ['linearRamp', 0]);
+    assert.deepEqual(secondTapGain.gain.calls.at(-1), ['linearRamp', 1]);
+    graph.setDelay(2.5);
+    graph.setDelay(3);
+    assert.equal(first.delayTime.value, 2);
+    ctx.currentTime = 4.1;
+    graph.advance();
+    assert.equal(first.delayTime.value, 3);
+    assert.equal(second.delayTime.value, 1);
+    assert.deepEqual(firstTapGain.gain.calls.at(-1), ['linearRamp', 1]);
   });
   it('disconnect() does not throw', () => {
     const ctx = mockAudioContext();

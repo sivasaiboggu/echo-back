@@ -11,6 +11,9 @@ import {
   peakFromTimeDomain,
   rmsFromTimeDomain,
 } from './audio-engine.js';
+import { drawTunnel } from './tunnel.js';
+import { prepareRecorder, recordTake } from './take-recording.js';
+import { mountTakes } from './takes-ui.js';
 import { narrationFor, tickPositions, trailProgress, primeRemainingSeconds } from './ui-helpers.js';
 
 const byId = (id) => document.getElementById(id);
@@ -32,6 +35,14 @@ const rulerTicks = byId('rulerTicks');
 const rulerLabels = byId('rulerLabels');
 const inputTrace = makeTrace('inWaveCanvas');
 const outputTrace = makeTrace('outWaveCanvas');
+const tunnel = byId('tunnelCanvas');
+const tunnelReadout = byId('tunnelDelay');
+const tunnelValue = tunnelReadout.firstChild;
+const presetButtons = [...document.querySelectorAll('[data-delay]')];
+const recordButton = byId('recordBtn');
+const recordLabel = byId('recordLabel');
+const recordClock = byId('recordClock');
+const recordStatus = byId('recordStatus');
 const mediaMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const forcedColors = matchMedia('(forced-colors: active)');
 const params = new URLSearchParams(location.search);
@@ -44,6 +55,8 @@ let frame = 0;
 let rulerWidth = 0;
 let tickElements = [];
 let lastDraw = -Infinity;
+let recording;
+const takes = mountTakes(() => { if (session) stop(); }, renderRecording);
 
 const delaySeconds = () => clampDelay(delaySlider.value);
 const seconds = (value) => `${value.toFixed(1)} s`;
@@ -69,9 +82,15 @@ function syncTheme() {
   const root = document.documentElement;
   const style = getComputedStyle(root);
   const color = (role) => style.getPropertyValue(`--${role}`).trim();
-  palette = { grid: color('line'), trace: color('trace'), accent: color('accent') };
-  if (forcedColors.matches) palette = { grid: 'ButtonBorder', trace: 'CanvasText', accent: 'Highlight' };
+  palette = {
+    grid: color('line'), trace: color('trace'), accent: color('accent'),
+    tunnel: color('tunnel-line'), wall: color('raised'),
+  };
+  if (forcedColors.matches) {
+    palette = { grid: 'ButtonBorder', trace: 'CanvasText', accent: 'Highlight', tunnel: 'GrayText', wall: 'Canvas' };
+  }
   if (inputTrace.scale) drawTraces();
+  if (tunnel.clientWidth) drawTunnel(tunnel, palette, Math.min(devicePixelRatio || 1, 2));
 }
 
 function fitTraces() {
@@ -86,6 +105,13 @@ function fitTraces() {
     canvas.height = height;
     trace.scale = ratio;
     resized = true;
+  }
+  const tunnelWidth = Math.max(1, Math.round(tunnel.clientWidth * ratio));
+  const tunnelHeight = Math.max(1, Math.round(tunnel.clientHeight * ratio));
+  if (tunnel.width !== tunnelWidth || tunnel.height !== tunnelHeight) {
+    tunnel.width = tunnelWidth;
+    tunnel.height = tunnelHeight;
+    drawTunnel(tunnel, palette, ratio);
   }
   rulerWidth = rulerTrack.clientWidth;
   if (resized) drawTraces();
@@ -154,11 +180,11 @@ function renderRuler(progress = 0) {
   const active = micActive();
   const echoing = state.state === 'echoing';
   const steady = echoing && mediaMotion.matches;
-  rulerMarker.hidden = !active;
+  rulerMarker.hidden = !active || mediaMotion.matches;
   rulerMarker.style.transform = `translateX(${progress * Math.max(0, rulerWidth - 4)}px)`;
-  rulerFill.style.transform = `scaleX(${echoing ? 1 : progress})`;
+  rulerFill.style.transform = `scaleX(${echoing ? 1 : mediaMotion.matches ? 0 : progress})`;
   for (const { element, fraction } of tickElements) {
-    element.toggleAttribute('data-passed', active && (steady || progress >= fraction));
+    element.toggleAttribute('data-passed', active && (steady || (!mediaMotion.matches && progress >= fraction)));
   }
 }
 
@@ -171,6 +197,71 @@ function renderStatus(now = performance.now()) {
   setText(byId('startLabel'), phase === 'requesting' ? 'Cancel' : session ? 'Stop echo' : 'Start echo');
   renderSpeaker();
   renderNote(now);
+  renderRecording();
+}
+
+function renderRecording() {
+  const active = Boolean(recording?.capture && !recording.finishing);
+  const supported = Boolean(session?.context?.audioWorklet);
+  const ready = micActive() && supported && takes.canRecord();
+  recordButton.disabled = recording ? !active : !ready;
+  recordButton.toggleAttribute('data-recording', active);
+  setText(recordLabel, active ? 'Save take' : recording
+    ? (recording.finishing ? 'Saving…' : 'Opening…')
+    : 'Record take');
+  recordClock.hidden = !active;
+  if (active) renderRecordingClock();
+  if (micActive() && !demo && !supported) setText(recordStatus, 'This browser can play the echo but cannot record a take.');
+  if (active || !recording) setText(byId('recordHint'), takes.canRecord()
+    ? 'Start a live echo to record up to 60 seconds.'
+    : 'Download or delete the unsaved take before recording again.');
+}
+
+function renderRecordingClock() {
+  setText(recordClock, `Recording ${formatTimer(recording.capture.seconds())} / 01:00`);
+}
+
+function finishRecording() {
+  if (!recording?.capture || recording.finishing) return;
+  recording.finishing = true;
+  recording.capture.finish();
+  setText(recordStatus, 'Saving take…');
+  renderRecording();
+}
+
+async function beginRecording() {
+  const current = session;
+  const work = { session: current };
+  recording = work;
+  setText(recordStatus, 'Opening recorder…');
+  renderRecording();
+  try {
+    current.recorderReady ??= prepareRecorder(current.context).catch((error) => {
+      current.recorderReady = null;
+      throw error;
+    });
+    await current.recorderReady;
+    if (recording !== work || session !== current) return;
+    work.capture = recordTake(current.context, current.graph.inputAnalyser, async (result) => {
+      if (recording !== work) return;
+      work.finishing = true;
+      setText(recordStatus, 'Saving take…');
+      renderRecording();
+      if (session !== current) closeContext(current);
+      const notice = await takes.add(result);
+      if (recording !== work) return;
+      recording = null;
+      setText(recordStatus, notice);
+      renderRecording();
+    });
+    setText(recordStatus, 'Recording take.');
+    renderRecording();
+  } catch {
+    if (recording !== work) return;
+    recording = null;
+    setText(recordStatus, 'Could not open the recorder. Try again.');
+    renderRecording();
+  }
 }
 
 function renderNote(now) {
@@ -190,6 +281,8 @@ function syncDelay() {
   setText(byId('delayValue'), text);
   delaySlider.setAttribute('aria-valuetext', `${delay.toFixed(1)} seconds`);
   setText(byId('trailTime'), `${text} delay`);
+  if (tunnelValue.nodeValue !== delay.toFixed(1)) tunnelValue.nodeValue = delay.toFixed(1);
+  for (const preset of presetButtons) preset.setAttribute('aria-pressed', String(Number(preset.dataset.delay) === delay));
 
   tickElements = [0, ...tickPositions(delay), 1].map((fraction) => {
     const element = document.createElement('span');
@@ -216,8 +309,11 @@ function syncDelay() {
     session.graph?.setDelay(delay);
     const now = performance.now();
     if (state.state === 'listening') {
-      session.primeStart = now;
-      session.echoAt = now + delay * 1000;
+      if (session.graph) {
+        session.echoAt = now + Math.max(0, session.graph.echoAt - session.context.currentTime) * 1000;
+      } else {
+        session.echoAt = Math.max(now, session.primeStart + delay * 1000);
+      }
     } else {
       session.echoAt = now;
     }
@@ -257,13 +353,15 @@ function animate(now) {
   const current = session;
   if (!current || !micActive()) return;
   const { graph, guard, primeStart, echoAt, startedAt } = current;
-  if (state.state === 'listening' && now >= echoAt) {
+  const audioReady = graph ? current.context.currentTime >= graph.echoAt : now >= echoAt;
+  if (state.state === 'listening' && audioReady) {
     state.go('echoing');
     renderStatus(now);
   }
   const echoing = state.state === 'echoing';
 
   if (graph) {
+    graph.advance();
     graph.inputAnalyser.getByteTimeDomainData(inputTrace.samples);
     const action = guard.update(peakFromTimeDomain(inputTrace.samples), now);
     if (action === 'duck') {
@@ -293,7 +391,8 @@ function animate(now) {
   renderRuler(trailProgress({
     state: state.state, nowMs: now, primeStartMs: primeStart, echoAtMs: echoAt, delaySeconds: delaySeconds(),
   }));
-  setText(timer, formatTimer((now - startedAt) / 1000));
+  setText(timer, formatTimer(graph ? current.context.currentTime - graph.connectedAt : (now - startedAt) / 1000));
+  if (recording?.capture && !recording.finishing) renderRecordingClock();
   frame = requestAnimationFrame(animate);
 }
 
@@ -307,13 +406,30 @@ function beginListening(current) {
   frame = requestAnimationFrame(animate);
 }
 
-function releaseSession() {
+function closeContext(current) {
+  current?.context?.close().catch(() => {});
+}
+
+function releaseSession(discard = false) {
   const current = session;
   session = null;
   cancelAnimationFrame(frame);
   current?.graph?.disconnect();
   current?.stream?.getTracks().forEach((track) => track.stop());
-  current?.context?.close().catch(() => {});
+  if (current && recording?.session === current) {
+    if (discard || !recording.capture) {
+      const capture = recording.capture;
+      recording = null;
+      capture?.discard();
+      setText(recordStatus, '');
+      closeContext(current);
+    } else {
+      // Keep the context alive until the worklet has delivered its final frames.
+      finishRecording();
+    }
+  } else {
+    closeContext(current);
+  }
   setText(timer, '00:00');
   setText(warning, '');
 }
@@ -325,8 +441,8 @@ function renderRest() {
   drawTraces();
 }
 
-function stop() {
-  releaseSession();
+function stop(discard = false) {
+  releaseSession(discard);
   state.reset();
   renderRest();
 }
@@ -339,6 +455,8 @@ function fail(message) {
 
 async function start() {
   if (!state.go('requesting')) return;
+  takes.pause();
+  if (!recording) setText(recordStatus, '');
   const current = { guard: new FeedbackGuard() };
   session = current;
   renderStatus();
@@ -368,11 +486,24 @@ async function start() {
     current.stream = stream;
     const playing = await resumed;
     if (session !== current) return;
-    if (!playing) throw new Error('Audio output unavailable');
+    if (!playing) {
+      fail('Audio output is unavailable. Check your sound settings and try again.');
+      return;
+    }
+    if (!stream.getAudioTracks().some((track) => track.readyState === 'live')) {
+      fail('The microphone disconnected. Check it and start again.');
+      return;
+    }
 
     current.graph = createEchoGraph(current.context, stream, {
       delaySeconds: delaySeconds(),
       volumePercent: Number(volumeSlider.value),
+      smoothDelay: true,
+    });
+    current.context.addEventListener('statechange', () => {
+      if (session === current && current.context.state !== 'running') {
+        fail('Audio was interrupted. Start again when your microphone is ready.');
+      }
     });
     for (const track of stream.getAudioTracks()) {
       track.addEventListener('ended', () => {
@@ -390,12 +521,28 @@ async function start() {
 }
 
 startButton.addEventListener('click', () => session ? stop() : start());
+recordButton.addEventListener('click', () => {
+  if (recording) finishRecording();
+  else if (!recordButton.disabled) beginRecording();
+});
+for (const preset of presetButtons) {
+  preset.addEventListener('click', () => {
+    delaySlider.value = preset.dataset.delay;
+    syncDelay();
+  });
+}
 delaySlider.addEventListener('input', syncDelay);
 volumeSlider.addEventListener('input', syncVolume);
 document.addEventListener('themechange', syncTheme);
 mediaMotion.addEventListener('change', drawTraces);
 forcedColors.addEventListener('change', syncTheme);
-window.addEventListener('pagehide', () => { if (session) stop(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && session) stop();
+});
+window.addEventListener('pagehide', () => {
+  if (session) stop(true);
+  takes.pause();
+});
 
 delaySlider.value = String(DELAY_DEFAULT);
 volumeSlider.value = String(VOLUME_DEFAULT);
@@ -404,7 +551,9 @@ syncTheme();
 syncDelay();
 syncVolume();
 fitTraces();
-new ResizeObserver(fitTraces).observe(inputTrace.canvas);
+const layoutObserver = new ResizeObserver(fitTraces);
+layoutObserver.observe(inputTrace.canvas);
+layoutObserver.observe(tunnel);
 if (demo && params.get('autostart') === '1') start();
 
 if (document.documentElement.dataset.offline === 'true' && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

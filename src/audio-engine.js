@@ -1,14 +1,3 @@
-// EchoBack — core audio engine.
-// Microphone -> DelayNode -> DynamicsCompressor -> GainNode -> speakers.
-// Live passthrough with a delay ONLY. Nothing is recorded, stored, or
-// transmitted: there is no MediaRecorder, no buffer kept past the delay
-// line, and no network call anywhere in this file.
-//
-// The pure helpers (clampDelay, clampGain, formatTimer) and the two small
-// state machines (EchoState, FeedbackGuard) have no browser dependency so
-// they are unit-tested directly. createEchoGraph wires the real Web Audio
-// graph and is tested with a mock AudioContext.
-
 export const DELAY_MIN = 0.5; // seconds
 export const DELAY_MAX = 3.0; // seconds
 export const DELAY_DEFAULT = 2.0; // seconds — the delay from the original post
@@ -17,6 +6,7 @@ export const GAIN_CAP = 0.85; // master gain never exceeds this (feedback safety
 export const DUCK_FACTOR = 0.3; // gain multiplier while the feedback guard is ducked
 export const FEEDBACK_PEAK = 0.98; // input pinned at/above this = feedback risk
 export const FEEDBACK_HOLD_MS = 500; // sustained pinned time before ducking
+const DELAY_FADE_SECONDS = 0.09;
 export const FEEDBACK_RECOVER_MS = 2000; // calm time before restoring gain
 
 /** Clamp a delay in seconds to the slider range. Non-numbers fall back to default. */
@@ -151,13 +141,54 @@ export class FeedbackGuard {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Web Audio graph. `audioCtx` is injected so tests can pass a mock.
-// Graph: MediaStreamSource -> inputAnalyser -> DelayNode -> outputAnalyser
-//        -> DynamicsCompressor -> GainNode -> destination
-// echoCancellation / noiseSuppression are off by design: the mic must hear
-// the room as it is (the loud reels), not a cleaned-up version of it.
-// ---------------------------------------------------------------------------
+// Both delay taps keep the same input history. Retune the silent tap before
+// fading to it so changing the delay does not bend the pitch of the old tap.
+function connectDelayTaps(context, input, first, destination) {
+  const second = context.createDelay(DELAY_MAX);
+  second.delayTime.value = first.delayTime.value;
+  const taps = [first, second].map((delay, index) => {
+    const level = context.createGain();
+    level.gain.value = index === 0 ? 1 : 0;
+    input.connect(delay);
+    delay.connect(level);
+    level.connect(destination);
+    return { delay, level: level.gain };
+  });
+  let current = 0;
+  let target = first.delayTime.value;
+  let fadeEnds = 0;
+
+  function advance() {
+    const now = context.currentTime;
+    if (now < fadeEnds || taps[current].delay.delayTime.value === target) return;
+    const next = 1 - current;
+    const time = taps[next].delay.delayTime;
+    time.value = target;
+    // Change the delay one Web Audio render quantum before raising the tap.
+    const start = now + 128 / context.sampleRate;
+    fadeEnds = start + DELAY_FADE_SECONDS;
+    for (const [index, tap] of taps.entries()) {
+      tap.level.cancelScheduledValues(now);
+      tap.level.setValueAtTime(index === current ? 1 : 0, now);
+      tap.level.setValueAtTime(index === current ? 1 : 0, start);
+      tap.level.linearRampToValueAtTime(index === next ? 1 : 0, fadeEnds);
+    }
+    current = next;
+  }
+
+  return {
+    advance,
+    set(seconds, priming) {
+      target = seconds;
+      if (priming) {
+        for (const tap of taps) tap.delay.delayTime.value = target;
+      } else {
+        advance();
+      }
+    },
+  };
+}
+
 export function createEchoGraph(audioCtx, stream, options = {}) {
   const delaySeconds = clampDelay(options.delaySeconds ?? DELAY_DEFAULT);
   const gainValue = clampGain(options.volumePercent ?? VOLUME_DEFAULT);
@@ -184,11 +215,31 @@ export function createEchoGraph(audioCtx, stream, options = {}) {
   gain.gain.value = gainValue;
 
   source.connect(inputAnalyser);
-  inputAnalyser.connect(delay);
-  delay.connect(outputAnalyser);
-  outputAnalyser.connect(compressor);
   compressor.connect(gain);
-  gain.connect(audioCtx.destination);
+  let taps;
+  let gate;
+  if (options.smoothDelay) {
+    taps = connectDelayTaps(audioCtx, inputAnalyser, delay, compressor);
+    gate = audioCtx.createGain();
+    gate.gain.value = 0;
+    gain.connect(gate);
+    gate.connect(outputAnalyser);
+    outputAnalyser.connect(audioCtx.destination);
+  } else {
+    inputAnalyser.connect(delay);
+    delay.connect(outputAnalyser);
+    outputAnalyser.connect(compressor);
+    gain.connect(audioCtx.destination);
+  }
+  const connectedAt = audioCtx.currentTime;
+  let echoAt = connectedAt + delaySeconds;
+  function prime() {
+    gate.gain.cancelScheduledValues(audioCtx.currentTime);
+    gate.gain.setValueAtTime(0, audioCtx.currentTime);
+    gate.gain.setValueAtTime(0, Math.max(audioCtx.currentTime, echoAt));
+    gate.gain.linearRampToValueAtTime(1, Math.max(audioCtx.currentTime, echoAt) + .012);
+  }
+  if (gate) prime();
 
   const graph = {
     source,
@@ -199,10 +250,21 @@ export function createEchoGraph(audioCtx, stream, options = {}) {
     gain,
     baseGain: gainValue,
     ducked: false,
+    connectedAt,
+    get echoAt() { return echoAt; },
+
+    advance() { taps?.advance(); },
 
     setDelay(seconds) {
       const v = clampDelay(seconds);
-      if (delay.delayTime.setTargetAtTime) {
+      if (taps) {
+        const priming = audioCtx.currentTime < echoAt;
+        taps.set(v, priming);
+        if (priming) {
+          echoAt = Math.max(audioCtx.currentTime, connectedAt + v);
+          prime();
+        }
+      } else if (delay.delayTime.setTargetAtTime) {
         delay.delayTime.setTargetAtTime(v, audioCtx.currentTime, 0.05);
       } else {
         delay.delayTime.value = v;
@@ -245,7 +307,7 @@ export function createEchoGraph(audioCtx, stream, options = {}) {
 
     disconnect() {
       try { source.disconnect(); } catch { /* already gone */ }
-      try { gain.disconnect(); } catch { /* already gone */ }
+      try { (gate ? outputAnalyser : gain).disconnect(); } catch { /* already gone */ }
     },
   };
 
